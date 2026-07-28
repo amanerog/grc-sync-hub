@@ -6,3 +6,6 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .env
+.coverage
+coverage.xml
+reports/
