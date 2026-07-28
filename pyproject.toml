@@ -3,20 +3,11 @@ name = "sinc-amn"
 version = "0.1.0"
 description = "Microservicio de sincronizacion Auron <-> Maisa/Noxus"
 requires-python = ">=3.12"
-dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.30",
-    "httpx>=0.27",
-    "pydantic-settings>=2.4",
-    "asyncpg>=0.29",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "ruff>=0.6",
-]
+# Las dependencias se gestionan en el Pipfile/Pipfile.lock (fuente de verdad
+# para el build de Docker). Este bloque queda vacio a proposito: se usa
+# `pip install -e .` solo para tener el paquete `sinc_amn` instalado en modo
+# editable en desarrollo local, no para resolver versiones.
+dependencies = []
 
 [build-system]
 requires = ["setuptools>=68"]
