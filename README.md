@@ -25,10 +25,10 @@ usa para instalar el paquete `sinc_amn` en modo editable.
 pip install pipenv
 pipenv install --dev
 pipenv run pip install -e .
-pipenv run uvicorn sinc_amn.main:app --reload --app-dir src
+pipenv run uvicorn sinc_amn.main:app --reload --app-dir grc
 ```
 
-Variables de entorno requeridas (ver `src/sinc_amn/config.py`), prefijo
+Variables de entorno requeridas (ver `grc/sinc_amn/config.py`), prefijo
 `SINC_AMN_`: `AURON_BASE_URL`, `AURON_API_KEY`, `AURON_ZEN_INSTANCE_ID`,
 `MAISA_BASE_URL`, `MAISA_API_KEY`, `NOXUS_BASE_URL`, `NOXUS_API_KEY`,
 `GENERIC_USE_CASE_ID`, `INTERMEDIATE_DB_DSN`, `MAISA_ORGANIZATION_ID`.
@@ -51,7 +51,7 @@ del `Pipfile` vía `pipenv requirements` y arranca el servicio con
 
 Un despliegue independiente por entidad necesita, como mínimo:
 
-- Variables de entorno con prefijo `SINC_AMN_` (ver `src/sinc_amn/config.py`),
+- Variables de entorno con prefijo `SINC_AMN_` (ver `grc/sinc_amn/config.py`),
   propias de cada entidad (credenciales de Auron/Maisa/Noxus y su
   `generic_use_case_id`).
 - Un trigger horario a `POST /flows/use-cases/sync` (Flujo 1).

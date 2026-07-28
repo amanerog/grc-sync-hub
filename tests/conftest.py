@@ -1,6 +1,6 @@
 import os
 
-# `Settings` (src/sinc_amn/config.py) exige estas variables sin valor por
+# `Settings` (grc/sinc_amn/config.py) exige estas variables sin valor por
 # defecto y se instancia a nivel de modulo en los clients (Auron/Maisa/Noxus)
 # y en db/pool.py, asi que deben existir antes de importar `sinc_amn.main`
 # en cualquier test.

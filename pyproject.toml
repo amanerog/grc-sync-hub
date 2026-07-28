@@ -13,8 +13,13 @@ dependencies = []
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+# El paquete vive en grc/sinc_amn, no en el src/ que setuptools
+# autodetecta por convencion, asi que hay que decirselo explicitamente.
+where = ["grc"]
+
 [tool.pytest.ini_options]
-# Layout src/: el pipeline de CI corre pytest sin instalar el paquete
+# Layout grc/: el pipeline de CI corre pytest sin instalar el paquete
 # (`pipenv install`/`--dev` solo resuelven el Pipfile, no hacen `pip install
 # -e .`), asi que sin esto `import sinc_amn` falla en collection.
-pythonpath = ["src"]
+pythonpath = ["grc"]

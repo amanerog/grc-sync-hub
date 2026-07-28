@@ -217,7 +217,7 @@ minimizar el retraso hasta que el caso de uso aparece en Maisa) y uno diario a
 sinc_amn/
 ├── ARCHITECTURE.md
 ├── pyproject.toml
-├── src/sinc_amn/
+├── grc/sinc_amn/
 │   ├── main.py                        # entrypoint FastAPI
 │   ├── config.py                      # Settings (pydantic BaseSettings)
 │   ├── api/routes/
