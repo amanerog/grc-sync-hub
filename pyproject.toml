@@ -23,3 +23,4 @@ where = ["grc"]
 # (`pipenv install`/`--dev` solo resuelven el Pipfile, no hacen `pip install
 # -e .`), asi que sin esto `import sinc_amn` falla en collection.
 pythonpath = ["grc"]
+asyncio_mode = "auto"

@@ -79,7 +79,12 @@ class AuronClient:
     ) -> list[UseCase]:
         """Casos de uso creados/actualizados desde `since` para los tenants dados."""
         headers = await self._auth_headers()
-        response = await self._client.get(
+        # httpx >=0.28 quito el parametro `json` del atajo `.get()` (GET con
+        # body ya no esta soportado ahi); `.request()` si lo mantiene para
+        # cualquier verbo, y aqui hace falta: el contrato de OpenPages exige
+        # un GET con body JSON para esta consulta masiva.
+        response = await self._client.request(
+            "GET",
             settings.auron_use_cases_path,
             headers=headers,
             params={"since": since.astimezone(timezone.utc).isoformat()},
