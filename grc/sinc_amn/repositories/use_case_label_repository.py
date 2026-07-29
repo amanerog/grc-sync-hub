@@ -46,15 +46,16 @@ class UseCaseLabelRepository:
                 row = await conn.fetchrow(
                     """
                     INSERT INTO maisa_use_case_labels
-                        (id, source_resource_id, name, name_lower, organization_id,
-                         worker_count, status, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, 0, 'new', $6, $6)
+                        (id, source_resource_id, name, name_lower, entity,
+                         organization_id, worker_count, status, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, 0, 'new', $7, $7)
                     RETURNING *
                     """,
                     uuid4(),
                     use_case.resource_id,
                     use_case.name,
                     name_lower,
+                    use_case.entity,
                     organization_id,
                     now,
                 )
@@ -62,12 +63,14 @@ class UseCaseLabelRepository:
                 row = await conn.fetchrow(
                     """
                     UPDATE maisa_use_case_labels
-                    SET name = $1, name_lower = $2, status = 'modified', updated_at = $3
-                    WHERE id = $4
+                    SET name = $1, name_lower = $2, entity = $3, status = 'modified',
+                        updated_at = $4
+                    WHERE id = $5
                     RETURNING *
                     """,
                     use_case.name,
                     name_lower,
+                    use_case.entity,
                     now,
                     existing["id"],
                 )

@@ -11,5 +11,6 @@ class UseCase(BaseModel):
 
     resource_id: str  # [Register].[Resource ID] -- clave de correlacion con OpenPages
     name: str  # [Register].[Name]
-    tenant: Tenant  # derivado del prefijo de [Engagement].[Name] (Maisa%/Noxus%)
-    updated_at: datetime
+    tenant: Tenant  # tenant de la query que lo devolvio (WHERE Engagement.Name LIKE '<Tenant>%')
+    entity: str | None = None  # [Register].[Santander Fields:ECB AI Category]
+    updated_at: datetime  # [Register].[Last Modification Date]

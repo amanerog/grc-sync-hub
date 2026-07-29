@@ -51,6 +51,7 @@ def _label_row(**overrides) -> dict:
         "source_resource_id": "RES-1",
         "name": "Caso 1",
         "name_lower": "caso 1",
+        "entity": "AI System",
         "organization_id": "org-1",
         "worker_count": 0,
         "status": "new",
@@ -71,6 +72,7 @@ async def test_upsert_from_use_case_inserts_when_new():
         resource_id="RES-1",
         name="Caso 1",
         tenant="maisa",
+        entity="AI System",
         updated_at=datetime.now(timezone.utc),
     )
 
@@ -80,6 +82,7 @@ async def test_upsert_from_use_case_inserts_when_new():
     assert label.status == "new"
     assert len(conn.fetchrow_calls) == 2
     assert "INSERT INTO" in conn.fetchrow_calls[1][0]
+    assert "AI System" in conn.fetchrow_calls[1][1]
 
 
 async def test_upsert_from_use_case_updates_when_existing():
@@ -87,7 +90,12 @@ async def test_upsert_from_use_case_updates_when_existing():
     conn = FakeConnection(
         fetchrow_results=[
             _label_row(id=existing_id),
-            _label_row(id=existing_id, status="modified", name="Caso 1 renombrado"),
+            _label_row(
+                id=existing_id,
+                status="modified",
+                name="Caso 1 renombrado",
+                entity="Non-AI System",
+            ),
         ]
     )
     repo = UseCaseLabelRepository(FakePool(conn))
@@ -95,6 +103,7 @@ async def test_upsert_from_use_case_updates_when_existing():
         resource_id="RES-1",
         name="Caso 1 renombrado",
         tenant="maisa",
+        entity="Non-AI System",
         updated_at=datetime.now(timezone.utc),
     )
 
@@ -102,7 +111,9 @@ async def test_upsert_from_use_case_updates_when_existing():
 
     assert label.status == "modified"
     assert label.name == "Caso 1 renombrado"
+    assert label.entity == "Non-AI System"
     assert "UPDATE maisa_use_case_labels" in conn.fetchrow_calls[1][0]
+    assert "Non-AI System" in conn.fetchrow_calls[1][1]
 
 
 async def test_get_pending_for_maisa_returns_labels():

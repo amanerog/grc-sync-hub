@@ -28,11 +28,16 @@ confirmado que en régimen el disparo es automático por CronJob horario.
 
 1. Un usuario crea el AI Use Case en OpenPages con la información mínima (proceso
    manual, fuera del microservicio — precondición, no algo que orqueste el servicio).
-2. `AuronClient.get_use_cases(since, tenants=["maisa", "noxus"])` — GET a OpenPages
-   filtrando casos de uso creados/actualizados desde el último checkpoint
-   ("since the last successful call"). El filtro real, según el propio contrato de
-   OpenPages, es por `Engagement.Name LIKE 'Maisa%' OR 'Noxus%'` sobre el `Register`
-   asociado (join `Register`→`Engagement` por `PARENT`). Auth: API key. Protocolo:
+2. `AuronClient.get_use_cases(tenants=["maisa", "noxus"])` — POST a la Query API de
+   OpenPages GRC v2 (`{auron_base_url}/opgrc/api/v2/query`, confirmada), una consulta
+   por tenant que trae `Resource ID`, `Name`, `Santander Fields:ECB AI Category`
+   (→ `UseCase.entity`) y `Last Modification Date`, con `WHERE [Engagement].[Name]
+   LIKE 'Maisa%'` (o `'Noxus%'`) `AND [Register].[Last Modification Date] > '<fecha>'`
+   y, si `settings.auron_use_cases_country` está seteada, `AND [Register].[Santander
+   Fields:Country] = '<pais>'` (sin setear: todos los países). Paginada via
+   `offset`/`next`. La fecha la resuelve `settings.auron_use_cases_since`: `"D-1"`
+   (default, se recalcula en cada llamada), `"All"` (sin filtro de fecha) o un
+   literal de fecha fijo. Auth: API key → token OAuth2 vía IBM Cloud IAM. Protocolo:
    HTTPS. Formatos: JSON/JSON.
 3. El microservicio valida y transforma el dato de OpenPages al modelo de datos de
    la solución IA.
@@ -55,19 +60,25 @@ lo hace otro componente, **"Funcionalidad \*"**, descrito más abajo.
   esquema respecto al dado en el PPT para no depender del nombre, que si
   cambia en OpenPages generaría un falso "nuevo").
 - Esquema del registro (`UseCaseLabel`): `id`, `source_resource_id`, `name`,
-  `name_lower` (clave de igualdad/unicidad que exige Maisa), `organization_id`
-  (entidad/entorno — viene de `settings.maisa_organization_id`, no de OpenPages,
-  porque el microservicio ya se despliega por entidad), `worker_count` (**lo
-  mantiene Maisa** vía asignación/desasignación de workers; la ingesta desde
-  OpenPages nunca lo toca salvo al crear el registro, que arranca en 0),
-  `status` (`new`/`modified`/`synced`/`deprecated` — `synced` lo añadimos para
-  la coordinación con "Funcionalidad \*", ver abajo) y el bloque de auditoría
+  `name_lower` (clave de igualdad/unicidad que exige Maisa), `entity` (`[Register].
+  [Santander Fields:ECB AI Category]` en Auron, ver `db/migrations/0003_add_entity_
+  to_maisa_use_case_labels.sql` — nullable, no confirmado que venga siempre relleno
+  en origen), `organization_id` (entidad/entorno — viene de
+  `settings.maisa_organization_id`, no de OpenPages, porque el microservicio ya se
+  despliega por entidad), `worker_count` (**lo mantiene Maisa** vía
+  asignación/desasignación de workers; la ingesta desde OpenPages nunca lo toca
+  salvo al crear el registro, que arranca en 0), `status`
+  (`new`/`modified`/`synced`/`deprecated` — `synced` lo añadimos para la
+  coordinación con "Funcionalidad \*", ver abajo) y el bloque de auditoría
   (`created_at`/`updated_at`/`deleted_at`/`is_deleted`).
 - Un **humano**, desde el front de Maisa, asigna manualmente el caso de uso a cada
   worker una vez la colección llega a Maisa. Esa asignación **no la hace el
   microservicio**.
 - El front de Maisa **sí filtra los casos de uso mostrados por país/entidad**
-  (confirmado) — responsabilidad del front de Maisa, no del microservicio.
+  (confirmado) — responsabilidad del front de Maisa, no del microservicio. La
+  ingesta desde OpenPages también puede filtrar por país en origen, opcionalmente,
+  vía `settings.auron_use_cases_country` (ver paso 2 más arriba) — son dos filtros
+  independientes, no relacionados entre sí.
 - **Autenticación confirmada** (ejemplos de código reales del equipo): dos
   pasos — `POST {auron_iam_url}` con `grant_type=apikey` + el API key cambia
   por un token OAuth2 (IBM Cloud IAM); ese token se usa como Bearer en las
@@ -78,11 +89,11 @@ lo hace otro componente, **"Funcionalidad \*"**, descrito más abajo.
   (`AuronClient.get_use_case_content` / `AuronClient.update_use_case`).
   `update_use_case` no la usa "Funcionalidad 1" (solo lee), se deja lista para
   cuando haga falta escribir de vuelta en OpenPages.
-- **Pendiente aún:** endpoint real de la **consulta masiva** (listar Resource
-  ID/Name filtrando por Engagement Maisa/Noxus — la que sí usa el batch
-  horario) no tiene todavía un ejemplo de código real como el resto de
-  llamadas; sigue con placeholder y TODOs en `clients/auron_client.py`. Ídem
-  para el mecanismo exacto del filtro incremental "since".
+- **Consulta masiva: confirmada e implementada.** Query API de OpenPages GRC v2
+  (`POST {auron_base_url}/opgrc/api/v2/query`) — una query por tenant, paginada via
+  `offset`/`next` (`AuronClient.get_use_cases`/`_fetch_tenant_use_cases`/
+  `_use_cases_query`). Ver "Ventana de fechas" más abajo para el filtro incremental
+  y el punto 2 de "Pasos comunes" para el filtro opcional de país.
 
 ### "Funcionalidad \*" — tabla intermedia → Maisa (DocumentDB)
 
@@ -125,14 +136,17 @@ lo hace otro componente, **"Funcionalidad \*"**, descrito más abajo.
   el microservicio empuja el caso de uso directamente y **Noxus asocia el caso de
   uso automáticamente**, sin label table intermedia ni paso manual de asignación.
 
-### Checkpoint
+### Ventana de fechas
 
-- Se persiste el último checkpoint exitoso (`CheckpointStore`) en vez de usar una
-  ventana fija "ahora - 1h", para no perder casos de uso si el CronJob falla o se
-  retrasa. Backend de persistencia pendiente de decidir (DynamoDB/RDS/ConfigMap).
+- **Ya no hay checkpoint persistido.** Se descartó `CheckpointStore` (quedó sin
+  usar, placeholder en `core/checkpoint.py`) a favor de un filtro de fecha
+  configurable por variable de entorno (`settings.auron_use_cases_since`),
+  aplicado directamente en el `WHERE` de la Query API: `"D-1"` (default, el
+  día anterior calculado en cada ejecución), `"All"` (trae todo, útil para
+  cargas iniciales/backfill) o un literal de fecha fijo.
 - Pendiente de definir estrategia de fallo parcial: si Maisa u Noxus falla para un
-  caso de uso concreto, ¿el checkpoint no avanza más allá de ese punto, o se
-  necesita tracking de estado por destino para reintentar solo lo pendiente?
+  caso de uso concreto, hoy el error interrumpe el resto del batch — no hay
+  tracking de estado por destino para reintentar solo lo pendiente.
 
 **Endpoint expuesto:** `POST /flows/use-cases/sync`
 
@@ -241,7 +255,7 @@ sinc_amn/
 │   │   ├── use_case_label.py          # esquema de la tabla intermedia
 │   │   └── worker.py
 │   └── core/
-│       ├── checkpoint.py              # persistencia del último checkpoint (Flujo 1)
+│       ├── checkpoint.py              # placeholder sin usar, ver "Ventana de fechas" (Flujo 1)
 │       ├── monitoring.py              # registro de IDs/estado (Flujo 2, paso 6AB)
 │       ├── notifications.py           # email a admins (Flujo 2, paso 7A)
 │       └── logging.py
@@ -256,30 +270,25 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
 
 ## Pendiente de acordar (bloqueantes antes de implementar)
 
-1. URL/path real del endpoint de OpenPages y nombres reales de los campos JSON
-   de respuesta (`clients/auron_client.py` usa placeholders razonables).
-2. Mecanismo exacto del filtro incremental "since" contra OpenPages (query
-   param vs. cláusula WHERE adicional).
-3. Payload exacto de la BBDD de monitorización (paso 6AB).
-4. Contrato de la API de ingesta de Noxus (paso 4b) — auth, forma del payload.
-5. Backend de persistencia del checkpoint del Flujo 1 (DynamoDB/RDS/ConfigMap).
-6. Backend de persistencia de `MonitoringStore` (¿misma BBDD que el checkpoint?).
-7. Mecanismo de envío de email (7A): ¿SES, SMTP corporativo, servicio interno?
-8. Estrategia de fallo parcial en Flujo 1 (Maisa ok / Noxus falla, o viceversa).
-9. ID del caso de uso genérico "Pendiente de regularizar" en Auron, **por entidad**.
-10. Contrato REST real de Maisa (`create_label`/`update_label` en
-    `clients/maisa_client.py`) — auth, URL, payload exacto de la colección
-    `labels` en su DocumentDB.
-11. Si finalmente hace falta el camino alternativo sin API de Maisa (descarga
-    diaria + carga separada por entidad/entorno, mencionado en el PPT como
-    fallback) — no implementado.
-12. Si/cuándo se retoma el write-back del `maisa_label_id` hacia OpenPages
-    (pospuesto explícitamente; `AuronClient.update_use_case` ya está listo).
-13. Endpoint real de creación (POST) de un Agent en OpenPages — solo tenemos
+1. Payload exacto de la BBDD de monitorización (paso 6AB).
+2. Contrato de la API de ingesta de Noxus (paso 4b) — auth, forma del payload.
+3. Backend de persistencia de `MonitoringStore` (Flujo 2, paso 6AB).
+4. Mecanismo de envío de email (7A): ¿SES, SMTP corporativo, servicio interno?
+5. Estrategia de fallo parcial en Flujo 1 (Maisa ok / Noxus falla, o viceversa).
+6. ID del caso de uso genérico "Pendiente de regularizar" en Auron, **por entidad**.
+7. Contrato REST real de Maisa (`create_label`/`update_label` en
+   `clients/maisa_client.py`) — auth, URL, payload exacto de la colección
+   `labels` en su DocumentDB.
+8. Si finalmente hace falta el camino alternativo sin API de Maisa (descarga
+   diaria + carga separada por entidad/entorno, mencionado en el PPT como
+   fallback) — no implementado.
+9. Si/cuándo se retoma el write-back del `maisa_label_id` hacia OpenPages
+   (pospuesto explícitamente; `AuronClient.update_use_case` ya está listo).
+10. Endpoint real de creación (POST) de un Agent en OpenPages — solo tenemos
     ejemplos de GET/PUT sobre un recurso ya existente.
-14. Field id de los campos personalizados del Agent en OpenPages: tag
+11. Field id de los campos personalizados del Agent en OpenPages: tag
     `worker_id` y enlace a `use_case_id` (`auron_agent_worker_id_field_id` /
     `auron_agent_use_case_field_id` en `config.py`, ambos sin valor real aún).
-15. Endpoint/mecanismo para `AuronClient.get_agent_by_worker_id` (buscar un
+12. Endpoint/mecanismo para `AuronClient.get_agent_by_worker_id` (buscar un
     Agent por su tag `worker_id` — probablemente el mismo tipo de consulta
-    masiva que el punto 1, pero sin confirmar).
+    masiva que la de casos de uso, pero sin confirmar).

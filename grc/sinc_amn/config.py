@@ -13,10 +13,16 @@ class Settings(BaseSettings):
     auron_api_key: str
     auron_iam_url: str = "https://iam.cloud.ibm.com/identity/token"
     auron_zen_instance_id: str
-    # TODO: confirmar el path real del endpoint de consulta masiva (el slide
-    # solo indica "...."; get/update de un recurso concreto SI esta confirmado
-    # via /grc/api/contents/{resource_id}, ver AuronClient).
-    auron_use_cases_path: str = "/api/v1/register-query"
+    # Endpoint confirmado de consulta masiva (Query API de OpenPages GRC v2).
+    auron_use_cases_path: str = "/opgrc/api/v2/query"
+    # Umbral de fecha para el WHERE [Register].[Last Modification Date] > ...
+    # de la consulta masiva. "D-1" (default): se calcula el dia anterior en
+    # cada llamada. "All": no se filtra por fecha, se trae todo. Cualquier
+    # otro valor se usa tal cual como literal de fecha en el WHERE.
+    auron_use_cases_since: str = "D-1"
+    # Filtro opcional por [Register].[Santander Fields:Country] (p.ej. "ESP").
+    # Sin setear: no se filtra por pais, se traen todos.
+    auron_use_cases_country: str | None = None
 
     # Maisa
     maisa_base_url: str

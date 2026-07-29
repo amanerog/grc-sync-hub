@@ -1,23 +1,66 @@
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta
 
 import httpx
 
 from sinc_amn.config import settings
 from sinc_amn.models.use_case import UseCase
 
-# TODO: confirmar con el equipo de Auron el endpoint real y el mecanismo del
-# filtro incremental "since" de esta consulta masiva. Body tal cual lo
-# documenta el contrato de OpenPages (GET con body JSON) - a diferencia de
-# get_use_case_content/update_use_case, este endpoint no ha sido validado
-# contra un ejemplo de codigo real.
-_USE_CASES_QUERY = (
-    "SELECT [Register].[Resource ID], [Register].[Name] "
-    "FROM [Register] "
-    "JOIN [Engagement] ON PARENT([Register]) "
-    "WHERE [Engagement].[Name] LIKE 'Maisa%' OR [Engagement].[Name] LIKE 'Noxus%'"
-)
+# Query API de OpenPages GRC v2 (POST {auron_base_url}/opgrc/api/v2/query),
+# confirmada con el equipo de Auron. La respuesta pagina via "offset"/"limit"
+# y trae un link "next" mientras queden paginas; cada fila es
+# {"fields": [{"name": ..., "value": ...}, ...]}, sin Engagement.Name - por
+# eso el tenant se resuelve en el propio WHERE (una query por tenant) en vez
+# de leerlo de la respuesta.
+_ENGAGEMENT_PREFIX_BY_TENANT = {"maisa": "Maisa", "noxus": "Noxus"}
+
+
+def _since_condition() -> str | None:
+    """WHERE de fecha segun `settings.auron_use_cases_since`.
+
+    "D-1" (default): el dia anterior, calculado en cada llamada (no en el
+    arranque del proceso). "All": sin filtro de fecha, se trae todo.
+    Cualquier otro valor se usa tal cual como literal de fecha.
+    """
+    raw = settings.auron_use_cases_since.strip()
+    if raw.lower() == "all":
+        return None
+    if raw.upper() == "D-1":
+        raw = (date.today() - timedelta(days=1)).isoformat()
+    return f"[Register].[Last Modification Date] > '{raw}'"
+
+
+def _country_condition() -> str | None:
+    """WHERE de pais segun `settings.auron_use_cases_country`.
+
+    Sin setear (None): sin filtro de pais, se traen todos.
+    """
+    country = settings.auron_use_cases_country
+    if not country:
+        return None
+    return f"[Register].[Santander Fields:Country] = '{country}'"
+
+
+def _use_cases_query(tenant: str) -> str:
+    prefix = _ENGAGEMENT_PREFIX_BY_TENANT[tenant]
+    conditions = [f"[Engagement].[Name] LIKE '{prefix}%'"]
+    since_condition = _since_condition()
+    if since_condition:
+        conditions.append(since_condition)
+    country_condition = _country_condition()
+    if country_condition:
+        conditions.append(country_condition)
+    return (
+        "SELECT [Register].[Resource ID], [Register].[Name], "
+        "[Register].[Santander Fields:ECB AI Category], "
+        "[Register].[Santander Fields:Country], "
+        "[Register].[Last Modification Date] "
+        "FROM [Register] "
+        "JOIN [Engagement] ON PARENT([Register]) "
+        f"WHERE {' AND '.join(conditions)}"
+    )
+
 
 _TOKEN_EXPIRY_BUFFER_SECONDS = 60
 
@@ -74,37 +117,57 @@ class AuronClient:
             "ZEN-Service-Instance-Id": settings.auron_zen_instance_id,
         }
 
-    async def get_use_cases(
-        self, since: datetime, tenants: list[str]
-    ) -> list[UseCase]:
-        """Casos de uso creados/actualizados desde `since` para los tenants dados."""
+    async def get_use_cases(self, tenants: list[str]) -> list[UseCase]:
+        """Casos de uso de los tenants dados, filtrados por fecha en el propio
+        WHERE segun `settings.auron_use_cases_since` (ver `_since_condition`).
+        """
         headers = await self._auth_headers()
-        # httpx >=0.28 quito el parametro `json` del atajo `.get()` (GET con
-        # body ya no esta soportado ahi); `.request()` si lo mantiene para
-        # cualquier verbo, y aqui hace falta: el contrato de OpenPages exige
-        # un GET con body JSON para esta consulta masiva.
-        response = await self._client.request(
-            "GET",
-            settings.auron_use_cases_path,
-            headers=headers,
-            params={"since": since.astimezone(timezone.utc).isoformat()},
-            json={"body": _USE_CASES_QUERY},
-        )
-        response.raise_for_status()
-        payload = response.json()
+        use_cases: list[UseCase] = []
+        for tenant in tenants:
+            use_cases.extend(await self._fetch_tenant_use_cases(tenant, headers))
+        return use_cases
 
-        use_cases = [self._parse_use_case(item) for item in payload.get("items", [])]
-        return [uc for uc in use_cases if uc.tenant in tenants and uc.updated_at >= since]
+    async def _fetch_tenant_use_cases(
+        self, tenant: str, headers: dict
+    ) -> list[UseCase]:
+        statement = _use_cases_query(tenant)
+        rows: list[dict] = []
+        offset = 0
+
+        while True:
+            response = await self._client.post(
+                settings.auron_use_cases_path,
+                headers=headers,
+                json={
+                    "statement": statement,
+                    "offset": offset,
+                    "case_insensitive": False,
+                    "honor_primary": False,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+            page_rows = payload.get("rows", [])
+            rows.extend(page_rows)
+            if not payload.get("next"):
+                break
+            offset += payload.get("limit") or len(page_rows) or 1
+
+        return [self._parse_use_case(row, tenant) for row in rows]
 
     @staticmethod
-    def _parse_use_case(item: dict) -> UseCase:
-        engagement_name: str = item["engagementName"]
-        tenant = "maisa" if engagement_name.lower().startswith("maisa") else "noxus"
+    def _parse_use_case(row: dict, tenant: str) -> UseCase:
+        values = {field["name"]: field["value"] for field in row["fields"]}
         return UseCase(
-            resource_id=item["resourceId"],
-            name=item["name"],
+            resource_id=values["Resource ID"],
+            name=values["Name"],
             tenant=tenant,
-            updated_at=datetime.fromisoformat(item["updatedAt"]),
+            # .get() (no []): a diferencia de Resource ID/Name/Last
+            # Modification Date, no tenemos confirmado que este campo
+            # personalizado venga siempre relleno para todos los registros.
+            entity=values.get("Santander Fields:ECB AI Category"),
+            updated_at=datetime.fromisoformat(values["Last Modification Date"]),
         )
 
     async def get_use_case_content(self, resource_id: str) -> dict:
