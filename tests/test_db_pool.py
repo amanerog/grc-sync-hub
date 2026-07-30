@@ -27,7 +27,7 @@ async def test_create_pool_sets_and_returns_pool(monkeypatch):
     assert result is fake_pool
     assert pool_module.get_pool() is fake_pool
     create_pool_mock.assert_awaited_once_with(
-        dsn=pool_module.settings.intermediate_db_dsn
+        dsn=pool_module.settings.intermediate_db_dsn, min_size=0
     )
 
 
