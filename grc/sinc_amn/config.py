@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -9,10 +10,15 @@ class Settings(BaseSettings):
     """
 
     # Auron (OpenPages) - autenticacion en dos pasos: apikey -> token IAM
-    auron_base_url: str
     auron_api_key: str
     auron_iam_url: str = "https://iam.cloud.ibm.com/identity/token"
     auron_zen_instance_id: str
+    # Si no se setea, se deriva de auron_zen_instance_id (mismo patron que en
+    # todos los ejemplos reales confirmados: <zen_instance_id>.eu-de.
+    # openpages.cloud.ibm.com). Se puede fijar explicitamente para forzar
+    # otro host/region si alguna entidad/entorno lo necesitara (ver
+    # `_default_auron_base_url` mas abajo).
+    auron_base_url: str | None = None
     # Endpoint confirmado de consulta masiva (Query API de OpenPages GRC v2).
     auron_use_cases_path: str = "/opgrc/api/v2/query"
     # Umbral de fecha para el WHERE [Register].[Last Modification Date] > ...
@@ -49,6 +55,14 @@ class Settings(BaseSettings):
 
     class Config:
         env_prefix = "SINC_AMN_"
+
+    @model_validator(mode="after")
+    def _default_auron_base_url(self) -> "Settings":
+        if not self.auron_base_url:
+            self.auron_base_url = (
+                f"https://{self.auron_zen_instance_id}.eu-de.openpages.cloud.ibm.com"
+            )
+        return self
 
 
 settings = Settings()

@@ -29,12 +29,17 @@ pipenv run uvicorn sinc_amn.main:app --reload --app-dir grc
 ```
 
 Variables de entorno requeridas (ver `grc/sinc_amn/config.py`), prefijo
-`SINC_AMN_`: `AURON_BASE_URL`, `AURON_API_KEY`, `AURON_ZEN_INSTANCE_ID`,
-`MAISA_BASE_URL`, `MAISA_API_KEY`, `NOXUS_BASE_URL`, `NOXUS_API_KEY`,
-`GENERIC_USE_CASE_ID`, `INTERMEDIATE_DB_DSN`, `MAISA_ORGANIZATION_ID`.
+`SINC_AMN_`: `AURON_API_KEY`, `AURON_ZEN_INSTANCE_ID`, `MAISA_BASE_URL`,
+`MAISA_API_KEY`, `NOXUS_BASE_URL`, `NOXUS_API_KEY`, `GENERIC_USE_CASE_ID`,
+`INTERMEDIATE_DB_DSN`, `MAISA_ORGANIZATION_ID`. `AURON_BASE_URL` es opcional:
+si no se setea, se deriva de `AURON_ZEN_INSTANCE_ID`
+(`https://<zen_instance_id>.eu-de.openpages.cloud.ibm.com`); solo hace falta
+fijarla a mano si el host real no sigue ese patrón.
 
-La migración de la tabla intermedia está en
-`db/migrations/0001_create_maisa_use_case_labels.sql` — aplicarla contra la
+Las migraciones de la tabla intermedia están en `db/migrations/` (aplicarlas
+en orden: `0001_create_maisa_use_case_labels.sql`,
+`0002_add_maisa_label_id_and_synced_status.sql`,
+`0003_add_entity_to_maisa_use_case_labels.sql`) — aplicarlas contra la
 instancia de RDS Postgres antes de levantar el servicio.
 
 No commitear nunca valores reales de API key/token — son credenciales del
