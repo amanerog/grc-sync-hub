@@ -161,7 +161,10 @@ class AuronClient:
 
     @staticmethod
     def _parse_use_case(row: dict, tenant: str) -> UseCase:
-        values = {field["name"]: field["value"] for field in row["fields"]}
+        # field.get("value") (no field["value"]): cuando un campo personalizado
+        # esta vacio en OpenPages, la fila puede omitir la clave "value" del
+        # todo en vez de traerla vacia/null.
+        values = {field["name"]: field.get("value") for field in row["fields"]}
         return UseCase(
             resource_id=values["Resource ID"],
             name=values["Name"],

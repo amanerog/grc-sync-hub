@@ -77,6 +77,24 @@ def _row(
     }
 
 
+def test_parse_use_case_tolerates_field_without_value_key():
+    # OpenPages puede omitir la clave "value" del todo (no solo dejarla
+    # vacia/null) cuando un campo personalizado no esta relleno.
+    row = {
+        "fields": [
+            {"name": "Resource ID", "value": "11075"},
+            {"name": "Name", "value": "Transaction Analysis"},
+            {"name": "Santander Fields:ECB AI Category"},
+            {"name": "Last Modification Date", "value": "2026-07-20T17:29:20.000+02:00"},
+        ]
+    }
+
+    use_case = AuronClient._parse_use_case(row, tenant="maisa")
+
+    assert use_case.resource_id == "11075"
+    assert use_case.entity is None
+
+
 def _make_use_cases_client(calls: list[dict]) -> httpx.AsyncClient:
     def handler(request: httpx.Request) -> httpx.Response:
         if str(request.url) == TOKEN_URL:
