@@ -13,6 +13,14 @@ from sinc_amn.config import settings
 TOKEN_URL = settings.auron_iam_url
 
 
+def test_default_client_uses_configured_timeout(monkeypatch):
+    monkeypatch.setattr(settings, "auron_http_timeout_seconds", 45.0)
+
+    auron = AuronClient()
+
+    assert auron._client.timeout == httpx.Timeout(45.0)
+
+
 def test_since_condition_defaults_to_d_minus_1(monkeypatch):
     monkeypatch.setattr(settings, "auron_use_cases_since", "D-1")
 

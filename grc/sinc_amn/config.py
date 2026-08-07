@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # Filtro opcional por [Register].[Santander Fields:Country] (p.ej. "ESP").
     # Sin setear: no se filtra por pais, se traen todos.
     auron_use_cases_country: str | None = None
+    # httpx.AsyncClient sin timeout explicito usa 5s por defecto (connect/
+    # read/write/pool) - insuficiente para la Query API de OpenPages, que
+    # puede tardar mas en consultas grandes. Aplica a todas las llamadas de
+    # AuronClient.
+    auron_http_timeout_seconds: float = 30.0
 
     # Maisa
     maisa_base_url: str

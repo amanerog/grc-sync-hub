@@ -81,7 +81,10 @@ class AuronClient:
     """
 
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
-        self._client = client or httpx.AsyncClient(base_url=settings.auron_base_url)
+        self._client = client or httpx.AsyncClient(
+            base_url=settings.auron_base_url,
+            timeout=settings.auron_http_timeout_seconds,
+        )
         self._token: str | None = None
         self._token_expires_at: float = 0.0
         self._token_lock = asyncio.Lock()
