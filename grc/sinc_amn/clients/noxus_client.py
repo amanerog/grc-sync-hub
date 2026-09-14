@@ -1,17 +1,19 @@
 import httpx
 
 from sinc_amn.config import settings
-from sinc_amn.models.use_case import UseCase
+from sinc_amn.models.noxus_use_case_label import NoxusUseCaseLabel
 from sinc_amn.models.worker import Worker
 
 
 class NoxusClient:
     """Cliente HTTP contra la API de Noxus.
 
-    A diferencia de Maisa, Noxus expone su propia API de ingesta y asocia el
-    caso de uso automaticamente al hacer push (sin label table intermedia ni
-    asignacion manual). Contrato exacto del payload pendiente de confirmar con
-    el equipo de Noxus (ver ARCHITECTURE.md, seccion "Pendiente de acordar").
+    Corregido respecto a un diseño anterior: Noxus SI usa tabla intermedia
+    ("Funcionalidad 1 - Noxus" / "Funcionalidad * - Noxus"), confirmado -
+    mismo patron que Maisa (`NoxusUseCaseLabelRepository`), ya no push
+    directo por item. Contrato REST aun no confirmado con el equipo de
+    Noxus (auth, URL, payload exacto) - placeholders con TODO, igual que
+    Maisa antes de tener ejemplos reales.
     """
 
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
@@ -20,10 +22,14 @@ class NoxusClient:
             headers={"Authorization": f"Bearer {settings.noxus_api_key}"},
         )
 
-    async def push_use_case(self, use_case: UseCase) -> None:
-        """Push del caso de uso; Noxus lo asocia automaticamente."""
-        raise NotImplementedError
-
     async def get_updated_workers(self, day) -> list[Worker]:
         """Workers actualizados en Noxus para el dia D-1 dado."""
+        raise NotImplementedError
+
+    async def create_label(self, label: NoxusUseCaseLabel) -> str:
+        """Crea el label en Noxus y devuelve el id generado alli (noxus_label_id)."""
+        raise NotImplementedError
+
+    async def update_label(self, noxus_label_id: str, label: NoxusUseCaseLabel) -> None:
+        """Actualiza un label existente en Noxus (identificado por noxus_label_id)."""
         raise NotImplementedError

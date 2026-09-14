@@ -1,9 +1,11 @@
 import logging
 
 from sinc_amn.clients.auron_client import AuronClient
-from sinc_amn.clients.noxus_client import NoxusClient
 from sinc_amn.config import settings
 from sinc_amn.models.use_case import UseCase
+from sinc_amn.repositories.noxus_use_case_label_repository import (
+    NoxusUseCaseLabelRepository,
+)
 from sinc_amn.repositories.use_case_label_repository import UseCaseLabelRepository
 from sinc_amn.repositories.use_case_sync_failure_repository import (
     UseCaseSyncFailureRepository,
@@ -22,8 +24,12 @@ class UseCaseSyncService:
     (eDOCUMENT db) lo hace otro componente ("Funcionalidad *"), fuera de
     alcance de este servicio.
 
-    Destino Noxus: push automatico (Noxus asocia el caso de uso el solo),
-    pendiente de implementar el contrato real (ver ARCHITECTURE.md).
+    Destino Noxus ("Funcionalidad 1 - Noxus"): mismo patron, persiste en su
+    propia tabla intermedia via NoxusUseCaseLabelRepository - confirmado
+    que Noxus tambien usa tabla intermedia, no push directo por item (corrige
+    un diseño anterior, ver ARCHITECTURE.md). El envio real a Noxus lo hace
+    NoxusLabelSyncService ("Funcionalidad * - Noxus"), fuera de alcance de
+    este servicio.
 
     La ventana de fechas la resuelve `AuronClient` en el propio WHERE de la
     consulta (`settings.auron_use_cases_since`), no un checkpoint persistido.
@@ -33,12 +39,12 @@ class UseCaseSyncService:
         self,
         auron: AuronClient,
         use_case_labels: UseCaseLabelRepository,
-        noxus: NoxusClient,
+        noxus_use_case_labels: NoxusUseCaseLabelRepository,
         sync_failures: UseCaseSyncFailureRepository,
     ) -> None:
         self._auron = auron
         self._use_case_labels = use_case_labels
-        self._noxus = noxus
+        self._noxus_use_case_labels = noxus_use_case_labels
         self._sync_failures = sync_failures
 
     async def run(self) -> dict:
@@ -99,7 +105,9 @@ class UseCaseSyncService:
                     use_case, organization_id=settings.maisa_organization_id
                 )
             elif use_case.tenant == "noxus":
-                await self._noxus.push_use_case(use_case)
+                await self._noxus_use_case_labels.upsert_from_use_case(
+                    use_case, organization_id=settings.noxus_organization_id
+                )
         except Exception as exc:
             logger.exception(
                 "use_case_sync: fallo procesando caso de uso %s (tenant=%s)",

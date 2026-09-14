@@ -8,6 +8,10 @@ from sinc_amn.config import settings
 from sinc_amn.core.monitoring import MonitoringStore
 from sinc_amn.core.notifications import AdminNotifier
 from sinc_amn.models.worker import Worker
+from sinc_amn.repositories.noxus_use_case_label_repository import (
+    NoxusUseCaseLabelRepository,
+)
+from sinc_amn.repositories.use_case_label_repository import UseCaseLabelRepository
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +30,16 @@ class WorkerSyncService:
         noxus: NoxusClient,
         monitoring: MonitoringStore,
         notifier: AdminNotifier,
+        use_case_labels: UseCaseLabelRepository,
+        noxus_use_case_labels: NoxusUseCaseLabelRepository,
     ) -> None:
         self._auron = auron
         self._maisa = maisa
         self._noxus = noxus
         self._monitoring = monitoring
         self._notifier = notifier
+        self._use_case_labels = use_case_labels
+        self._noxus_use_case_labels = noxus_use_case_labels
 
     async def run(self) -> dict:
         """Ejecuta el Flujo 2 y devuelve un resumen `{total, succeeded, failed}`.
@@ -81,15 +89,39 @@ class WorkerSyncService:
         try:
             agent = await self._auron.get_agent_by_worker_id(worker.worker_id)
 
+            # Owner del Use Case (field "3261" del Agent, distinto del owner
+            # del propio Agent) - se lee de la tabla intermedia del tenant
+            # correspondiente (poblada por Flujo 1), sin GET adicional a
+            # OpenPages.
+            if worker.tenant == "maisa":
+                use_case_label = await self._use_case_labels.get_by_resource_id(
+                    use_case_id, organization_id=settings.maisa_organization_id
+                )
+            else:
+                use_case_label = await self._noxus_use_case_labels.get_by_resource_id(
+                    use_case_id, organization_id=settings.noxus_organization_id
+                )
+            use_case_owner = use_case_label.owner if use_case_label else None
+
             if agent is None:
                 agent = await self._auron.create_agent(
                     worker_id=worker.worker_id,
                     use_case_id=use_case_id,
+                    tenant=worker.tenant,
+                    name=worker.agent_name,
+                    description=worker.agent_description,
+                    use_case_owner=use_case_owner,
+                    agent_owner=worker.agent_owner,
                 )
             else:
                 agent = await self._auron.update_agent(
                     agent_id=agent["id"],
                     use_case_id=use_case_id,
+                    tenant=worker.tenant,
+                    name=worker.agent_name,
+                    description=worker.agent_description,
+                    use_case_owner=use_case_owner,
+                    agent_owner=worker.agent_owner,
                 )
 
             if not had_use_case:

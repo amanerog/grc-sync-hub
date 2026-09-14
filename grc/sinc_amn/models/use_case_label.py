@@ -26,6 +26,7 @@ class UseCaseLabel(BaseModel):
     name: str
     name_lower: str
     entity: str | None = None  # [Register].[Santander Fields:aux_Business Entity] en Auron
+    owner: str | None = None  # [Register].[Santander Fields:Owner] en Auron - lo usa Flujo 2 (field "3261" del Agent)
     organization_id: str
     worker_count: int
     status: LabelStatus

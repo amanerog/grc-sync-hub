@@ -325,8 +325,8 @@ class AuronClient:
         worker_id (de Maisa/Noxus) no es el resource_id/agent_id de OpenPages:
         se guarda como campo personalizado ("tag") en el Agent
         (`settings.auron_agent_worker_id_field_id`, confirmado = "3658",
-        "Unique ID of ai agent" en el ejemplo real que lo confirma), y hay
-        que localizarlo por ese campo, no por ID directo.
+        "Santander-Fields-Agent:PlatformAgentID"), y hay que localizarlo por
+        ese campo, no por ID directo.
 
         TODO: placeholder. Pendiente el endpoint real de busqueda por campo
         (probablemente el mismo mecanismo de consulta masiva que
@@ -336,7 +336,16 @@ class AuronClient:
         """
         raise NotImplementedError
 
-    async def create_agent(self, worker_id: str, use_case_id: str) -> dict:
+    async def create_agent(
+        self,
+        worker_id: str,
+        use_case_id: str,
+        tenant: str,
+        name: str | None,
+        description: str | None,
+        use_case_owner: str | None,
+        agent_owner: str | None,
+    ) -> dict:
         """Da de alta un nuevo Agent en OpenPages y lo enlaza al caso de uso.
 
         Sin workspace_id (confirmado): el workspace_id del `Worker` no es un
@@ -354,22 +363,31 @@ class AuronClient:
         Use Case -> AI solution), solo dejo de aplicar a este enlace
         concreto.
 
-        Corregido respecto a una version anterior de este docstring:
         `name`/`description` van SOLO como claves de nivel superior, no
         tambien dentro de `fields.field` - un ejemplo completo real de
         creacion de Agent (con los 5 campos personalizados confirmados, ver
-        abajo) no incluye entradas para 57/59 en `fields.field`.
+        abajo) no incluye entradas para 57/59 en `fields.field`. Confirmado
+        que sus valores reales se recuperan de Maisa/Noxus al sincronizar
+        (`worker.agent_name`/`worker.agent_description`, ver
+        `models/worker.py`), no se generan aqui - solo el prefijo `[Agent
+        Maisa]`/`[Agent Noxus]` de `name` lo añade este metodo, usando
+        `tenant` (mismo mapeo que `_ENGAGEMENT_PREFIX_BY_TENANT`). Sin
+        confirmar: que hacer si `name`/`description` llegan `None` (Maisa/
+        Noxus podria no darlos siempre rellenos).
 
         Los 5 campos personalizados confirmados por ese mismo ejemplo real:
-        - `"3658"` (worker_id, tag de busqueda) - unico ya resuelto del todo.
-        - `"3261"` ("Santander Fields:Owner") - se rellena con el Owner del
-          Use Case al que se enlaza el Agent, no un owner propio del Agent.
-          Requiere un GET adicional (`get_use_case_content(use_case_id)`) o
-          que el caller ya lo tenga (p.ej. si `WorkerSyncService` guarda el
-          `UseCase.owner` de Flujo 1 - hoy no lo hace, Flujo 2 solo tiene
-          `use_case_id` como string).
-        - `"3293"` ("Creator of the AI Agent") - valor sin definir (¿un
-          identificador fijo del propio microservicio? ¿el owner otra vez?).
+        - `"3658"` ("Santander-Fields-Agent:PlatformAgentID", worker_id, tag
+          de busqueda) - unico ya resuelto del todo.
+        - `"3261"` ("Santander Fields:Owner") = `use_case_owner` - Owner del
+          **Use Case** al que se enlaza el Agent, no un owner propio del
+          Agent. Confirmado: se persiste en la tabla intermedia de cada
+          tenant durante Flujo 1 (`UseCaseLabel.owner`/
+          `NoxusUseCaseLabel.owner`), y el caller (`WorkerSyncService`) lo
+          lee de ahi via `get_by_resource_id` - sin GET adicional a
+          OpenPages, para Maisa y Noxus por igual.
+        - `"3293"` ("Creator of the AI Agent") = `agent_owner` - confirmado
+          que es el owner del propio Agent (distinto del anterior),
+          recuperado de Maisa/Noxus al sincronizar (`worker.agent_owner`).
         - `"3290"` ("Version id of the provider") - dato de Maisa/Noxus no
           presente en el modelo `Worker` actual.
         - `"3405"` ("Identifier of the cloud account... en Development") -
@@ -377,16 +395,17 @@ class AuronClient:
 
         La implementacion final sera basicamente:
         ```
+        prefix = _ENGAGEMENT_PREFIX_BY_TENANT[tenant]  # "Maisa" | "Noxus"
         create_content({
-            "name": f"[Agent Maisa/Noxus] {agent_name}",  # convencion aun sin confirmar
-            "description": description,  # contenido aun sin confirmar
+            "name": f"[Agent {prefix}] {name}",
+            "description": description,
             "typeDefinitionId": settings.auron_agent_type_definition_id,
             "primaryParentId": use_case_id,
             "fields": {"field": [
                 {"id": settings.auron_agent_worker_id_field_id,
                  "dataType": "STRING_TYPE", "hasChanged": True, "value": worker_id},
                 {"id": "3261", "dataType": "STRING_TYPE", "hasChanged": True, "value": use_case_owner},
-                {"id": "3293", "dataType": "STRING_TYPE", "hasChanged": True, "value": creator},
+                {"id": "3293", "dataType": "STRING_TYPE", "hasChanged": True, "value": agent_owner},
                 {"id": "3290", "dataType": "STRING_TYPE", "hasChanged": True, "value": provider_version_id},
                 {"id": "3405", "dataType": "STRING_TYPE", "hasChanged": True, "value": cloud_account_id},
             ]},
@@ -394,17 +413,23 @@ class AuronClient:
         ```
 
         TODO: placeholder. Bloqueado por datos que el `Worker`/Flujo 2 no
-        traen hoy: `use_case_owner` (necesita GET al Use Case), `creator`,
-        `provider_version_id`, `cloud_account_id` (los tres ultimos, del
-        contrato real de Maisa/Noxus, ver TODO en `models/worker.py`); y que
-        convencion de texto usar para `name`/`description` (el ejemplo
-        muestra el prefijo `[Agent Maisa/Noxus] <nombre>` pero no de donde
-        sale ese nombre ni la descripcion).
+        traen hoy: `provider_version_id`, `cloud_account_id` (del contrato
+        real de Maisa/Noxus, ver TODO en `models/worker.py`).
         """
         raise NotImplementedError
 
-    async def update_agent(self, agent_id: str, use_case_id: str) -> dict:
-        """Actualiza el enlace a use case de un Agent existente en OpenPages.
+    async def update_agent(
+        self,
+        agent_id: str,
+        use_case_id: str,
+        tenant: str,
+        name: str | None,
+        description: str | None,
+        use_case_owner: str | None,
+        agent_owner: str | None,
+    ) -> dict:
+        """Actualiza un Agent existente en OpenPages (enlace a use case y,
+        si cambiaron en origen, name/description/owners).
 
         Sin workspace_id (ver nota en `create_agent`): no es un dato del
         Agent. Para el enlace a use_case_id: sin confirmar si
@@ -414,6 +439,7 @@ class AuronClient:
         caso concreto (re-vincular un Agent ya existente a otro use case).
 
         TODO: placeholder. Bloqueado por la duda de `primaryParentId` en PUT
-        explicada arriba.
+        explicada arriba, mas los mismos datos que create_agent
+        (`provider_version_id`/`cloud_account_id`).
         """
         raise NotImplementedError

@@ -2,8 +2,10 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 from sinc_amn.clients.auron_client import AuronClient
-from sinc_amn.clients.noxus_client import NoxusClient
 from sinc_amn.models.use_case import UseCase
+from sinc_amn.repositories.noxus_use_case_label_repository import (
+    NoxusUseCaseLabelRepository,
+)
 from sinc_amn.repositories.use_case_label_repository import UseCaseLabelRepository
 from sinc_amn.repositories.use_case_sync_failure_repository import (
     UseCaseSyncFailureRepository,
@@ -23,11 +25,14 @@ def _use_case(**overrides) -> UseCase:
     return UseCase(**data)
 
 
-def _service(auron=None, use_case_labels=None, noxus=None, sync_failures=None):
+def _service(
+    auron=None, use_case_labels=None, noxus_use_case_labels=None, sync_failures=None
+):
     return UseCaseSyncService(
         auron=auron or AsyncMock(spec=AuronClient),
         use_case_labels=use_case_labels or AsyncMock(spec=UseCaseLabelRepository),
-        noxus=noxus or AsyncMock(spec=NoxusClient),
+        noxus_use_case_labels=noxus_use_case_labels
+        or AsyncMock(spec=NoxusUseCaseLabelRepository),
         sync_failures=sync_failures,
     )
 
@@ -39,21 +44,21 @@ async def test_run_routes_use_cases_by_tenant():
     auron = AsyncMock(spec=AuronClient)
     auron.get_use_cases.return_value = [maisa_uc, noxus_uc]
     use_case_labels = AsyncMock(spec=UseCaseLabelRepository)
-    noxus = AsyncMock(spec=NoxusClient)
+    noxus_use_case_labels = AsyncMock(spec=NoxusUseCaseLabelRepository)
     sync_failures = AsyncMock(spec=UseCaseSyncFailureRepository)
     sync_failures.get_pending.return_value = []
 
     service = _service(
         auron=auron,
         use_case_labels=use_case_labels,
-        noxus=noxus,
+        noxus_use_case_labels=noxus_use_case_labels,
         sync_failures=sync_failures,
     )
     summary = await service.run()
 
     auron.get_use_cases.assert_awaited_once_with(tenants=["maisa", "noxus"])
     use_case_labels.upsert_from_use_case.assert_awaited_once()
-    noxus.push_use_case.assert_awaited_once_with(noxus_uc)
+    noxus_use_case_labels.upsert_from_use_case.assert_awaited_once()
     sync_failures.mark_resolved.assert_any_await("RES-1")
     sync_failures.mark_resolved.assert_any_await("RES-2")
     sync_failures.record_failure.assert_not_awaited()
@@ -64,20 +69,20 @@ async def test_run_with_no_use_cases_does_nothing():
     auron = AsyncMock(spec=AuronClient)
     auron.get_use_cases.return_value = []
     use_case_labels = AsyncMock(spec=UseCaseLabelRepository)
-    noxus = AsyncMock(spec=NoxusClient)
+    noxus_use_case_labels = AsyncMock(spec=NoxusUseCaseLabelRepository)
     sync_failures = AsyncMock(spec=UseCaseSyncFailureRepository)
     sync_failures.get_pending.return_value = []
 
     service = _service(
         auron=auron,
         use_case_labels=use_case_labels,
-        noxus=noxus,
+        noxus_use_case_labels=noxus_use_case_labels,
         sync_failures=sync_failures,
     )
     summary = await service.run()
 
     use_case_labels.upsert_from_use_case.assert_not_awaited()
-    noxus.push_use_case.assert_not_awaited()
+    noxus_use_case_labels.upsert_from_use_case.assert_not_awaited()
     assert summary == {"total": 0, "succeeded": 0, "failed": 0}
 
 
@@ -89,20 +94,20 @@ async def test_run_isolates_failure_and_keeps_processing_rest_of_batch():
     auron.get_use_cases.return_value = [failing_uc, ok_uc]
     use_case_labels = AsyncMock(spec=UseCaseLabelRepository)
     use_case_labels.upsert_from_use_case.side_effect = RuntimeError("boom")
-    noxus = AsyncMock(spec=NoxusClient)
+    noxus_use_case_labels = AsyncMock(spec=NoxusUseCaseLabelRepository)
     sync_failures = AsyncMock(spec=UseCaseSyncFailureRepository)
     sync_failures.get_pending.return_value = []
 
     service = _service(
         auron=auron,
         use_case_labels=use_case_labels,
-        noxus=noxus,
+        noxus_use_case_labels=noxus_use_case_labels,
         sync_failures=sync_failures,
     )
     summary = await service.run()
 
     # El fallo en el item Maisa no impide procesar el item Noxus siguiente.
-    noxus.push_use_case.assert_awaited_once_with(ok_uc)
+    noxus_use_case_labels.upsert_from_use_case.assert_awaited_once()
     sync_failures.record_failure.assert_awaited_once_with("RES-1", "maisa", "boom")
     sync_failures.mark_resolved.assert_awaited_once_with("RES-2")
     assert summary == {"total": 2, "succeeded": 1, "failed": 1}
@@ -114,7 +119,7 @@ async def test_run_retries_pending_failures_by_resource_id():
     retried_uc = _use_case(resource_id="RES-OLD", tenant="maisa")
     auron.get_use_cases_by_resource_ids.return_value = [retried_uc]
     use_case_labels = AsyncMock(spec=UseCaseLabelRepository)
-    noxus = AsyncMock(spec=NoxusClient)
+    noxus_use_case_labels = AsyncMock(spec=NoxusUseCaseLabelRepository)
     sync_failures = AsyncMock(spec=UseCaseSyncFailureRepository)
     sync_failures.get_pending.return_value = [
         {"resource_id": "RES-OLD", "tenant": "maisa"}
@@ -123,7 +128,7 @@ async def test_run_retries_pending_failures_by_resource_id():
     service = _service(
         auron=auron,
         use_case_labels=use_case_labels,
-        noxus=noxus,
+        noxus_use_case_labels=noxus_use_case_labels,
         sync_failures=sync_failures,
     )
     summary = await service.run()
@@ -144,7 +149,7 @@ async def test_run_isolates_sync_failures_tracking_error_too():
     auron = AsyncMock(spec=AuronClient)
     auron.get_use_cases.return_value = [ok_uc]
     use_case_labels = AsyncMock(spec=UseCaseLabelRepository)
-    noxus = AsyncMock(spec=NoxusClient)
+    noxus_use_case_labels = AsyncMock(spec=NoxusUseCaseLabelRepository)
     sync_failures = AsyncMock(spec=UseCaseSyncFailureRepository)
     sync_failures.get_pending.return_value = []
     sync_failures.mark_resolved.side_effect = RuntimeError("db blip")
@@ -152,7 +157,7 @@ async def test_run_isolates_sync_failures_tracking_error_too():
     service = _service(
         auron=auron,
         use_case_labels=use_case_labels,
-        noxus=noxus,
+        noxus_use_case_labels=noxus_use_case_labels,
         sync_failures=sync_failures,
     )
     summary = await service.run()

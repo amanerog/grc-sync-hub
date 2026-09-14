@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from sinc_amn.api.routes import maisa_labels, use_cases, workers
+from sinc_amn.api.routes import maisa_labels, noxus_labels, use_cases, workers
 from sinc_amn.main import app
 
 
@@ -33,6 +33,41 @@ def test_sync_maisa_labels_endpoint(monkeypatch):
         "failed": 0,
     }
     assert ("run", None) in _FakeService.calls
+
+
+def test_sync_noxus_labels_endpoint(monkeypatch):
+    _FakeService.calls = []
+    _FakeService.summary = {"total": 2, "succeeded": 2, "failed": 0}
+    monkeypatch.setattr(noxus_labels, "NoxusLabelSyncService", _FakeService)
+    monkeypatch.setattr(noxus_labels, "get_pool", lambda: object())
+
+    response = TestClient(app).post("/flows/noxus-labels/sync")
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "status": "accepted",
+        "total": 2,
+        "succeeded": 2,
+        "failed": 0,
+    }
+    assert ("run", None) in _FakeService.calls
+
+
+def test_sync_noxus_labels_endpoint_returns_207_on_partial_failure(monkeypatch):
+    _FakeService.calls = []
+    _FakeService.summary = {"total": 2, "succeeded": 1, "failed": 1}
+    monkeypatch.setattr(noxus_labels, "NoxusLabelSyncService", _FakeService)
+    monkeypatch.setattr(noxus_labels, "get_pool", lambda: object())
+
+    response = TestClient(app).post("/flows/noxus-labels/sync")
+
+    assert response.status_code == 207
+    assert response.json() == {
+        "status": "accepted",
+        "total": 2,
+        "succeeded": 1,
+        "failed": 1,
+    }
 
 
 def test_sync_use_cases_endpoint(monkeypatch):
@@ -74,6 +109,7 @@ def test_sync_workers_endpoint(monkeypatch):
     _FakeService.calls = []
     _FakeService.summary = {"total": 1, "succeeded": 1, "failed": 0}
     monkeypatch.setattr(workers, "WorkerSyncService", _FakeService)
+    monkeypatch.setattr(workers, "get_pool", lambda: object())
 
     response = TestClient(app).post("/flows/workers/sync")
 

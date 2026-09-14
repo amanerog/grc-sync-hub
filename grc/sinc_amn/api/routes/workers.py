@@ -5,6 +5,11 @@ from sinc_amn.clients.maisa_client import MaisaClient
 from sinc_amn.clients.noxus_client import NoxusClient
 from sinc_amn.core.monitoring import MonitoringStore
 from sinc_amn.core.notifications import AdminNotifier
+from sinc_amn.db.pool import get_pool
+from sinc_amn.repositories.noxus_use_case_label_repository import (
+    NoxusUseCaseLabelRepository,
+)
+from sinc_amn.repositories.use_case_label_repository import UseCaseLabelRepository
 from sinc_amn.services.worker_sync_service import WorkerSyncService
 
 router = APIRouter(prefix="/flows/workers", tags=["workers"])
@@ -23,6 +28,8 @@ async def sync_workers(response: Response) -> dict:
         noxus=NoxusClient(),
         monitoring=MonitoringStore(),
         notifier=AdminNotifier(),
+        use_case_labels=UseCaseLabelRepository(get_pool()),
+        noxus_use_case_labels=NoxusUseCaseLabelRepository(get_pool()),
     )
     summary = await service.run()
     response.status_code = 202 if summary["failed"] == 0 else 207

@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Response
 
 from sinc_amn.clients.auron_client import AuronClient
-from sinc_amn.clients.noxus_client import NoxusClient
 from sinc_amn.db.pool import get_pool
+from sinc_amn.repositories.noxus_use_case_label_repository import (
+    NoxusUseCaseLabelRepository,
+)
 from sinc_amn.repositories.use_case_label_repository import UseCaseLabelRepository
 from sinc_amn.repositories.use_case_sync_failure_repository import (
     UseCaseSyncFailureRepository,
@@ -23,7 +25,7 @@ async def sync_use_cases(response: Response) -> dict:
     service = UseCaseSyncService(
         auron=AuronClient(),
         use_case_labels=UseCaseLabelRepository(get_pool()),
-        noxus=NoxusClient(),
+        noxus_use_case_labels=NoxusUseCaseLabelRepository(get_pool()),
         sync_failures=UseCaseSyncFailureRepository(get_pool()),
     )
     summary = await service.run()
