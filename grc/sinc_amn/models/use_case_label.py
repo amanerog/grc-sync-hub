@@ -25,7 +25,7 @@ class UseCaseLabel(BaseModel):
     source_resource_id: str
     name: str
     name_lower: str
-    entity: str | None = None  # [Register].[Santander Fields:ECB AI Category] en Auron
+    entity: str | None = None  # [Register].[Santander Fields:aux_Business Entity] en Auron
     organization_id: str
     worker_count: int
     status: LabelStatus

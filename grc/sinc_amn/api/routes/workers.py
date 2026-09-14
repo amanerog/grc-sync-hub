@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 from sinc_amn.clients.auron_client import AuronClient
 from sinc_amn.clients.maisa_client import MaisaClient
@@ -10,9 +10,13 @@ from sinc_amn.services.worker_sync_service import WorkerSyncService
 router = APIRouter(prefix="/flows/workers", tags=["workers"])
 
 
-@router.post("/sync", status_code=202)
-async def sync_workers() -> dict:
-    """Disparado por el CronJob diario. Ejecuta el Flujo 2 (workers D-1)."""
+@router.post("/sync")
+async def sync_workers(response: Response) -> dict:
+    """Disparado por el CronJob diario. Ejecuta el Flujo 2 (workers D-1).
+
+    202 si todos los items del batch se procesaron bien (o no habia
+    ninguno); 207 (Multi-Status) si hubo algun fallo aislado.
+    """
     service = WorkerSyncService(
         auron=AuronClient(),
         maisa=MaisaClient(),
@@ -20,5 +24,6 @@ async def sync_workers() -> dict:
         monitoring=MonitoringStore(),
         notifier=AdminNotifier(),
     )
-    await service.run()
-    return {"status": "accepted"}
+    summary = await service.run()
+    response.status_code = 202 if summary["failed"] == 0 else 207
+    return {"status": "accepted", **summary}

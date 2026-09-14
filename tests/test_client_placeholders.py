@@ -28,6 +28,7 @@ async def test_noxus_client_placeholders_raise_not_implemented():
         resource_id="RES-1",
         name="Caso 1",
         tenant="noxus",
+        created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
 
@@ -45,12 +46,8 @@ async def test_auron_client_agent_placeholders_raise_not_implemented():
     with pytest.raises(NotImplementedError):
         await client.get_agent_by_worker_id("W-1")
     with pytest.raises(NotImplementedError):
-        await client.create_agent(
-            worker_id="W-1", workspace_id="WS-1", use_case_id="UC-1"
-        )
+        await client.create_agent(worker_id="W-1", use_case_id="UC-1")
     with pytest.raises(NotImplementedError):
-        await client.update_agent(
-            agent_id="A-1", workspace_id="WS-1", use_case_id="UC-1"
-        )
+        await client.update_agent(agent_id="A-1", use_case_id="UC-1")
 
     await client._client.aclose()

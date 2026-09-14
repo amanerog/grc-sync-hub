@@ -42,6 +42,23 @@ def _country_condition() -> str | None:
     return f"[Register].[Santander Fields:Country] = '{country}'"
 
 
+def _escape_sql_literal(value: str) -> str:
+    """Duplica comillas simples, convencion SQL estandar para escaparlas
+    dentro de un literal (este lenguaje de query es SQL-like)."""
+    single_quote = "'"
+    return value.replace(single_quote, single_quote * 2)
+
+
+_USE_CASE_COLUMNS = (
+    "[Register].[Resource ID], [Register].[Name], "
+    "[Register].[Santander Fields:aux_Business Entity], "
+    "[Register].[Santander Fields:Country], "
+    "[Register].[Santander Fields:Owner], "
+    "[Register].[Creation Date], "
+    "[Register].[Last Modification Date]"
+)
+
+
 def _use_cases_query(tenant: str) -> str:
     prefix = _ENGAGEMENT_PREFIX_BY_TENANT[tenant]
     conditions = [f"[Engagement].[Name] LIKE '{prefix}%'"]
@@ -52,13 +69,29 @@ def _use_cases_query(tenant: str) -> str:
     if country_condition:
         conditions.append(country_condition)
     return (
-        "SELECT [Register].[Resource ID], [Register].[Name], "
-        "[Register].[Santander Fields:ECB AI Category], "
-        "[Register].[Santander Fields:Country], "
-        "[Register].[Last Modification Date] "
+        f"SELECT {_USE_CASE_COLUMNS} "
         "FROM [Register] "
         "JOIN [Engagement] ON PARENT([Register]) "
         f"WHERE {' AND '.join(conditions)}"
+    )
+
+
+def _resource_ids_query(resource_ids: list[str]) -> str:
+    """Query por Resource ID explicito, sin filtro de fecha/Engagement -
+    usada para reintentar items que fallaron y pudieron salir de la
+    ventana de `_since_condition` (ver
+    AuronClient.get_use_cases_by_resource_ids).
+
+    TODO: la sintaxis `IN (...)` no esta confirmada contra una respuesta
+    real (los ejemplos vistos solo usan `=`/`LIKE`/`>` con un unico valor)
+    - revisar si hace falta una cadena de `OR [Register].[Resource ID] =
+    '...'` en su lugar.
+    """
+    escaped_ids = ", ".join(f"'{_escape_sql_literal(rid)}'" for rid in resource_ids)
+    return (
+        f"SELECT {_USE_CASE_COLUMNS} "
+        "FROM [Register] "
+        f"WHERE [Register].[Resource ID] IN ({escaped_ids})"
     )
 
 
@@ -127,13 +160,30 @@ class AuronClient:
         headers = await self._auth_headers()
         use_cases: list[UseCase] = []
         for tenant in tenants:
-            use_cases.extend(await self._fetch_tenant_use_cases(tenant, headers))
+            statement = _use_cases_query(tenant)
+            rows = await self._paginate_query(statement, headers)
+            use_cases.extend(self._parse_use_case(row, tenant) for row in rows)
         return use_cases
 
-    async def _fetch_tenant_use_cases(
-        self, tenant: str, headers: dict
+    async def get_use_cases_by_resource_ids(
+        self, resource_ids: list[str], tenant: str
     ) -> list[UseCase]:
-        statement = _use_cases_query(tenant)
+        """Casos de uso puntuales por Resource ID, sin filtro de fecha ni de
+        Engagement - pensado para reintentar items que fallaron en un run
+        anterior y pudieron salir de la ventana `settings.auron_use_cases_since`
+        (ver `UseCaseSyncFailureRepository`/`UseCaseSyncService`). El
+        `tenant` se pasa explicito porque ya se conoce de cuando se registro
+        el fallo originalmente (esta query no filtra por Engagement, asi que
+        no hay forma de derivarlo de la respuesta).
+        """
+        if not resource_ids:
+            return []
+        headers = await self._auth_headers()
+        statement = _resource_ids_query(resource_ids)
+        rows = await self._paginate_query(statement, headers)
+        return [self._parse_use_case(row, tenant) for row in rows]
+
+    async def _paginate_query(self, statement: str, headers: dict) -> list[dict]:
         rows: list[dict] = []
         offset = 0
 
@@ -157,7 +207,7 @@ class AuronClient:
                 break
             offset += payload.get("limit") or len(page_rows) or 1
 
-        return [self._parse_use_case(row, tenant) for row in rows]
+        return rows
 
     @staticmethod
     def _parse_use_case(row: dict, tenant: str) -> UseCase:
@@ -169,10 +219,12 @@ class AuronClient:
             resource_id=values["Resource ID"],
             name=values["Name"],
             tenant=tenant,
-            # .get() (no []): a diferencia de Resource ID/Name/Last
-            # Modification Date, no tenemos confirmado que este campo
-            # personalizado venga siempre relleno para todos los registros.
-            entity=values.get("Santander Fields:ECB AI Category"),
+            # .get() (no []): a diferencia de Resource ID/Name/Creation Date/
+            # Last Modification Date, no tenemos confirmado que estos campos
+            # personalizados vengan siempre rellenos para todos los registros.
+            entity=values.get("Santander Fields:aux_Business Entity"),
+            owner=values.get("Santander Fields:Owner"),
+            created_at=datetime.fromisoformat(values["Creation Date"]),
             updated_at=datetime.fromisoformat(values["Last Modification Date"]),
         )
 
@@ -210,45 +262,158 @@ class AuronClient:
         response.raise_for_status()
         return response.json()
 
+    async def create_content(self, payload: dict) -> dict:
+        """POST /grc/api/contents - crea un recurso generico en OpenPages.
+
+        Confirmado via ejemplo real (coleccion Postman "IBM Open Pages",
+        "Create an AI Use Case"/"Create an AI Agent"): mismo endpoint para
+        cualquier tipo de recurso, distinguido por `typeDefinitionId` dentro
+        del propio `payload` (94 = AI Use Case, 156 = Agent en el ejemplo
+        visto - sin confirmar si estos ids son estables entre entornos/
+        tenants). El resto del payload tipico incluye `name`,
+        `parentFolderId` y `fields.field` (lista de
+        `{"id", "dataType", "hasChanged", "value"}` o `{"enumValue": {"name"}}`
+        para campos de tipo enum).
+
+        Bloque de construccion generico para `create_agent` (pendiente, ver
+        TODOs mas abajo); no usado todavia por ningun flujo real.
+        """
+        headers = await self._auth_headers()
+        response = await self._client.post(
+            "/grc/api/contents", headers=headers, json=payload
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def associate(
+        self,
+        resource_id: str,
+        target_id: str,
+        association_definition_id: str,
+        association_type: str,
+    ) -> None:
+        """POST /grc/api/contents/{resource_id}/associations - asocia dos recursos.
+
+        Confirmado via ejemplo real: body es una lista con un unico elemento
+        `{"id": target_id, "associationDefinitionId": ..., "type": "PARENT"|"CHILD"}`.
+        Ejemplos vistos: Use Case -> Business Entity (`associationDefinitionId
+        "690"`, type `"PARENT"`), Use Case -> AI solution Maisa (`"64"`,
+        `"CHILD"`), Agent -> Use Case (`"966"`, `"PARENT"`) - ninguno confirmado
+        estable entre entornos, se pasan como parametro en vez de fijarlos aqui.
+
+        Bloque de construccion generico para `create_agent`/`update_agent`
+        (pendiente, ver TODOs mas abajo); no usado todavia por ningun flujo
+        real.
+        """
+        headers = await self._auth_headers()
+        response = await self._client.post(
+            f"/grc/api/contents/{resource_id}/associations",
+            headers=headers,
+            json=[
+                {
+                    "id": target_id,
+                    "associationDefinitionId": association_definition_id,
+                    "type": association_type,
+                }
+            ],
+        )
+        response.raise_for_status()
+
     async def get_agent_by_worker_id(self, worker_id: str) -> dict | None:
         """Busca el Agent en OpenPages cuya tag worker_id coincide, o None.
 
         worker_id (de Maisa/Noxus) no es el resource_id/agent_id de OpenPages:
-        se guarda como campo personalizado ("tag") en el Agent, y hay que
-        localizarlo por ese campo, no por ID directo.
+        se guarda como campo personalizado ("tag") en el Agent
+        (`settings.auron_agent_worker_id_field_id`, confirmado = "3658",
+        "Unique ID of ai agent" en el ejemplo real que lo confirma), y hay
+        que localizarlo por ese campo, no por ID directo.
 
         TODO: placeholder. Pendiente el endpoint real de busqueda por campo
         (probablemente el mismo mecanismo de consulta masiva que
-        get_use_cases, filtrando por el campo `settings.auron_agent_worker_id_field_id`
-        en vez de por Engagement) y confirmar dicho field id con el equipo de Auron.
+        get_use_cases, filtrando por field id "3658" en vez de por
+        Engagement) - ningun ejemplo real visto hasta ahora es de busqueda,
+        solo de creacion.
         """
         raise NotImplementedError
 
-    async def create_agent(
-        self, worker_id: str, workspace_id: str, use_case_id: str
-    ) -> dict:
-        """Da de alta un nuevo Agent en OpenPages.
+    async def create_agent(self, worker_id: str, use_case_id: str) -> dict:
+        """Da de alta un nuevo Agent en OpenPages y lo enlaza al caso de uso.
 
-        El payload debe incluir la tag worker_id (campo personalizado) y el
-        enlace al use_case_id (confirmado: es un campo dentro del propio
-        payload del Agent, no una llamada de asociacion aparte).
+        Sin workspace_id (confirmado): el workspace_id del `Worker` no es un
+        dato del Agent, vive en el propio caso de uso (Noxus; Maisa no tiene
+        workspace_id asociado) - la creacion/actualizacion del caso de uso es
+        manual y fuera de alcance del microservicio (ver paso 1 del Flujo 1
+        en ARCHITECTURE.md), asi que create_agent/update_agent no lo
+        necesitan ni lo escriben.
 
-        TODO: placeholder. Los ejemplos reales que tenemos (get/update) son
-        sobre un recurso ya existente (`/grc/api/contents/{id}`); falta el
-        endpoint de creacion (POST) y los field id de
-        `settings.auron_agent_worker_id_field_id` /
-        `settings.auron_agent_use_case_field_id`.
+        El enlace a use_case_id es el campo `primaryParentId` del propio
+        payload de creacion (confirmado via dos ejemplos reales, `POST
+        /grc/api/contents` con `primaryParentId: "<use_case_resource_id>"`,
+        sin `parentFolderId`). `associate` sigue siendo valido como bloque
+        generico para otras asociaciones (p.ej. Use Case -> Business Entity,
+        Use Case -> AI solution), solo dejo de aplicar a este enlace
+        concreto.
+
+        Corregido respecto a una version anterior de este docstring:
+        `name`/`description` van SOLO como claves de nivel superior, no
+        tambien dentro de `fields.field` - un ejemplo completo real de
+        creacion de Agent (con los 5 campos personalizados confirmados, ver
+        abajo) no incluye entradas para 57/59 en `fields.field`.
+
+        Los 5 campos personalizados confirmados por ese mismo ejemplo real:
+        - `"3658"` (worker_id, tag de busqueda) - unico ya resuelto del todo.
+        - `"3261"` ("Santander Fields:Owner") - se rellena con el Owner del
+          Use Case al que se enlaza el Agent, no un owner propio del Agent.
+          Requiere un GET adicional (`get_use_case_content(use_case_id)`) o
+          que el caller ya lo tenga (p.ej. si `WorkerSyncService` guarda el
+          `UseCase.owner` de Flujo 1 - hoy no lo hace, Flujo 2 solo tiene
+          `use_case_id` como string).
+        - `"3293"` ("Creator of the AI Agent") - valor sin definir (¿un
+          identificador fijo del propio microservicio? ¿el owner otra vez?).
+        - `"3290"` ("Version id of the provider") - dato de Maisa/Noxus no
+          presente en el modelo `Worker` actual.
+        - `"3405"` ("Identifier of the cloud account... en Development") -
+          dato de Maisa/Noxus no presente en el modelo `Worker` actual.
+
+        La implementacion final sera basicamente:
+        ```
+        create_content({
+            "name": f"[Agent Maisa/Noxus] {agent_name}",  # convencion aun sin confirmar
+            "description": description,  # contenido aun sin confirmar
+            "typeDefinitionId": settings.auron_agent_type_definition_id,
+            "primaryParentId": use_case_id,
+            "fields": {"field": [
+                {"id": settings.auron_agent_worker_id_field_id,
+                 "dataType": "STRING_TYPE", "hasChanged": True, "value": worker_id},
+                {"id": "3261", "dataType": "STRING_TYPE", "hasChanged": True, "value": use_case_owner},
+                {"id": "3293", "dataType": "STRING_TYPE", "hasChanged": True, "value": creator},
+                {"id": "3290", "dataType": "STRING_TYPE", "hasChanged": True, "value": provider_version_id},
+                {"id": "3405", "dataType": "STRING_TYPE", "hasChanged": True, "value": cloud_account_id},
+            ]},
+        })
+        ```
+
+        TODO: placeholder. Bloqueado por datos que el `Worker`/Flujo 2 no
+        traen hoy: `use_case_owner` (necesita GET al Use Case), `creator`,
+        `provider_version_id`, `cloud_account_id` (los tres ultimos, del
+        contrato real de Maisa/Noxus, ver TODO en `models/worker.py`); y que
+        convencion de texto usar para `name`/`description` (el ejemplo
+        muestra el prefijo `[Agent Maisa/Noxus] <nombre>` pero no de donde
+        sale ese nombre ni la descripcion).
         """
         raise NotImplementedError
 
-    async def update_agent(
-        self, agent_id: str, workspace_id: str, use_case_id: str
-    ) -> dict:
-        """Actualiza un Agent existente en OpenPages (workspace + enlace a use case).
+    async def update_agent(self, agent_id: str, use_case_id: str) -> dict:
+        """Actualiza el enlace a use case de un Agent existente en OpenPages.
 
-        Usara PUT /grc/api/contents/{agent_id} igual que update_use_case, una
-        vez se confirmen los field id de worker_id/use_case (ver create_agent).
+        Sin workspace_id (ver nota en `create_agent`): no es un dato del
+        Agent. Para el enlace a use_case_id: sin confirmar si
+        `primaryParentId` se puede cambiar en un PUT igual que un `field`
+        normal (ningun ejemplo visto es de actualizacion, solo de creacion) -
+        si no se puede, podria hacer falta volver a `associate` para este
+        caso concreto (re-vincular un Agent ya existente a otro use case).
 
-        TODO: placeholder.
+        TODO: placeholder. Bloqueado por la duda de `primaryParentId` en PUT
+        explicada arriba.
         """
         raise NotImplementedError

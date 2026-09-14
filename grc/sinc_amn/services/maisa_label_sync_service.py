@@ -22,20 +22,42 @@ class MaisaLabelSyncService:
         self._use_case_labels = use_case_labels
         self._maisa = maisa
 
-    async def run(self) -> None:
+    async def run(self) -> dict:
+        """Ejecuta "Funcionalidad *" y devuelve un resumen `{total, succeeded, failed}`.
+
+        Aislamiento por item (confirmado, mismo criterio que Flujo 1): un
+        label que falle (create/update/mark_synced) no interrumpe el resto
+        del batch.
+        """
         pending = await self._use_case_labels.get_pending_for_maisa(
             organization_id=settings.maisa_organization_id
         )
 
+        succeeded = 0
+        failed = 0
         for label in pending:
-            if label.maisa_label_id is None:
-                maisa_label_id = await self._maisa.create_label(label)
-            else:
-                await self._maisa.update_label(label.maisa_label_id, label)
-                maisa_label_id = label.maisa_label_id
+            try:
+                if label.maisa_label_id is None:
+                    maisa_label_id = await self._maisa.create_label(label)
+                else:
+                    await self._maisa.update_label(label.maisa_label_id, label)
+                    maisa_label_id = label.maisa_label_id
 
-            await self._use_case_labels.mark_synced(
-                label.id, maisa_label_id, expected_status=label.status
-            )
+                await self._use_case_labels.mark_synced(
+                    label.id, maisa_label_id, expected_status=label.status
+                )
+            except Exception:
+                failed += 1
+                logger.exception(
+                    "maisa_label_sync: fallo procesando label %s", label.id
+                )
+                continue
+            succeeded += 1
 
-        logger.info("maisa_label_sync: procesados %d labels", len(pending))
+        logger.info(
+            "maisa_label_sync: procesados %d labels (%d ok, %d fallidos)",
+            len(pending),
+            succeeded,
+            failed,
+        )
+        return {"total": len(pending), "succeeded": succeeded, "failed": failed}

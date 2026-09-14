@@ -45,10 +45,14 @@ class Settings(BaseSettings):
 
     # Flujo 2: caso de uso generico para workers sin use_case_id
     generic_use_case_id: str
-    # Flujo 2: field id de los campos personalizados del Agent en OpenPages.
-    # Pendientes de confirmar con el equipo de Auron (ver AuronClient).
-    auron_agent_worker_id_field_id: str | None = None
-    auron_agent_use_case_field_id: str | None = None
+    # Flujo 2: field id de la tag worker_id (campo personalizado del Agent,
+    # "Unique ID of ai agent" en el ejemplo real que lo confirma). Bloqueante
+    # historico de create_agent/get_agent_by_worker_id, ya resuelto.
+    auron_agent_worker_id_field_id: str = "3658"
+    # typeDefinitionId del tipo "Agent" en OpenPages. Confirmado via dos
+    # ejemplos reales independientes con el mismo valor (no se ha visto
+    # variar por tenant Maisa/Noxus).
+    auron_agent_type_definition_id: str = "156"
 
     # Flujo 1: backend de checkpoint (pendiente de decidir: dynamodb/rds/configmap)
     checkpoint_backend: str = "configmap"

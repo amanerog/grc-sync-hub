@@ -39,8 +39,9 @@ fijarla a mano si el host real no sigue ese patrón.
 Las migraciones de la tabla intermedia están en `db/migrations/` (aplicarlas
 en orden: `0001_create_maisa_use_case_labels.sql`,
 `0002_add_maisa_label_id_and_synced_status.sql`,
-`0003_add_entity_to_maisa_use_case_labels.sql`) — aplicarlas contra la
-instancia de RDS Postgres antes de levantar el servicio.
+`0003_add_entity_to_maisa_use_case_labels.sql`,
+`0004_create_use_case_sync_failures.sql`) — aplicarlas contra la instancia
+de RDS Postgres antes de levantar el servicio.
 
 No commitear nunca valores reales de API key/token — son credenciales del
 IAM de IBM Cloud, rotables desde su consola si se filtran.

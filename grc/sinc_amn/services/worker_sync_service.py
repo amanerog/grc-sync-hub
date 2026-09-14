@@ -33,7 +33,12 @@ class WorkerSyncService:
         self._monitoring = monitoring
         self._notifier = notifier
 
-    async def run(self) -> None:
+    async def run(self) -> dict:
+        """Ejecuta el Flujo 2 y devuelve un resumen `{total, succeeded, failed}`.
+
+        Aislamiento por item (confirmado): un worker que falle no interrumpe
+        el resto del batch, sea cual sea su origen (Maisa/Noxus).
+        """
         target_day = date.today() - timedelta(days=1)
 
         workers = [
@@ -41,33 +46,49 @@ class WorkerSyncService:
             *await self._noxus.get_updated_workers(target_day),  # 1B
         ]
 
+        succeeded = 0
+        failed = 0
         # 2AB: procesar la informacion combinada de ambos origenes.
         for worker in workers:
-            await self._ingest_worker(worker)
+            if await self._ingest_worker(worker):
+                succeeded += 1
+            else:
+                failed += 1
 
-        logger.info("worker_sync: procesados %d workers (D-1=%s)", len(workers), target_day)
+        logger.info(
+            "worker_sync: procesados %d workers (D-1=%s, %d ok, %d fallidos)",
+            len(workers),
+            target_day,
+            succeeded,
+            failed,
+        )
+        return {"total": len(workers), "succeeded": succeeded, "failed": failed}
 
-    async def _ingest_worker(self, worker: Worker) -> None:
+    async def _ingest_worker(self, worker: Worker) -> bool:
+        """Ingesta un worker de forma aislada: nunca propaga un fallo, lo
+        registra (log + intento de MonitoringStore) y devuelve False.
+        """
         # 3A/3B-5A/5B: alta/actualizacion del agente, con la tag worker_id y
         # el enlace al caso de uso incluidos en el mismo payload (confirmado:
-        # no hay una llamada de asociacion aparte).
-        agent = await self._auron.get_agent_by_worker_id(worker.worker_id)
-
+        # no hay una llamada de asociacion aparte). workspace_id no es un
+        # dato del Agent (vive en el propio caso de uso, solo Noxus - Maisa
+        # no tiene workspace_id asociado), asi que no se le pasa aqui.
+        agent: dict | None = None
         had_use_case = worker.use_case_id is not None
         use_case_id = worker.use_case_id or settings.generic_use_case_id
 
         status = "success"
         try:
+            agent = await self._auron.get_agent_by_worker_id(worker.worker_id)
+
             if agent is None:
                 agent = await self._auron.create_agent(
                     worker_id=worker.worker_id,
-                    workspace_id=worker.workspace_id,
                     use_case_id=use_case_id,
                 )
             else:
                 agent = await self._auron.update_agent(
                     agent_id=agent["id"],
-                    workspace_id=worker.workspace_id,
                     use_case_id=use_case_id,
                 )
 
@@ -79,13 +100,26 @@ class WorkerSyncService:
                 )
         except Exception:
             status = "error"
-            raise
+            logger.exception(
+                "worker_sync: fallo ingiriendo worker %s", worker.worker_id
+            )
         finally:
             # 6AB: registrar el resultado de la ingesta para monitorizacion.
-            await self._monitoring.record(
-                worker_id=worker.worker_id,
-                agent_id=agent["id"] if agent else "",
-                use_case_id=use_case_id,
-                status=status,
-                timestamp=datetime.now(timezone.utc),
-            )
+            # Un fallo aqui (MonitoringStore sigue en placeholder hoy) es en
+            # si mismo un fallo aislado: no debe tumbar el aislamiento del
+            # resto del batch, solo se loguea.
+            try:
+                await self._monitoring.record(
+                    worker_id=worker.worker_id,
+                    agent_id=agent["id"] if agent else "",
+                    use_case_id=use_case_id,
+                    status=status,
+                    timestamp=datetime.now(timezone.utc),
+                )
+            except Exception:
+                logger.exception(
+                    "worker_sync: fallo registrando monitorizacion de %s",
+                    worker.worker_id,
+                )
+
+        return status == "success"
