@@ -220,27 +220,47 @@ con dos diferencias puntuales:
   body. Mismo criterio aplicado también a "Funcionalidad \*"
   (`MaisaLabelSyncService`/`NoxusLabelSyncService`) y al Flujo 2
   (`WorkerSyncService`, ver abajo).
-- **Tracking de fallos: confirmado e implementado, solo para Flujo 1.**
-  "Funcionalidad \*" ya es robusta por diseño (reintenta indefinidamente
-  vía `status IN ('new', 'modified')`, sin ventana de tiempo de por medio);
-  Flujo 2 queda pendiente hasta tener el contrato real de
-  `get_updated_workers` (no sabemos si ya trae solape entre días). El hueco
-  real de Flujo 1: la ventana `D-1` se desplaza cada día, así que un item
-  que falla y no se arregla antes de medianoche podía dejar de aparecer en
-  el `WHERE` para siempre, sin más reintento posible. Solución:
-  `use_case_sync_failures` (Postgres, `db/migrations/0004_...sql`,
-  `UseCaseSyncFailureRepository`) — cada fallo aislado se registra ahí
-  (`resource_id`, `tenant`, `error`, `attempts`, `first_failed_at`,
-  `last_attempt_at`, `resolved_at`). En cada `run()`, además del batch
-  normal, se relee `WHERE resolved_at IS NULL` y se reintenta por
-  **Resource ID explícito** vía `AuronClient.get_use_cases_by_resource_ids`
-  (mismo parseo de filas que `get_use_cases`, pero sin filtro de fecha ni
-  de Engagement — usa `[Register].[Resource ID] IN (...)`, sintaxis sin
-  confirmar contra una respuesta real, ver TODO en `_resource_ids_query`).
-  Un éxito marca `resolved_at`; un fallo (incluida la propia escritura en
-  esta tabla) se aísla igual que cualquier otro item, sin tumbar el resto
-  del batch. `attempts` se trackea pero no hay backoff/límite todavía —
-  candidato para alertar ("N intentos sin resolver") más adelante.
+- **Tracking de fallos: confirmado e implementado, tanto en Flujo 1 como en
+  Flujo 2.** "Funcionalidad \*"/"Funcionalidad \* - Noxus" ya son robustas
+  por diseño (reintentan indefinidamente vía `status IN ('new',
+  'modified')`, sin ventana de tiempo de por medio) — no necesitan este
+  mecanismo. El hueco real (Flujo 1 y Flujo 2 por igual): la ventana `D-1`
+  se desplaza cada día, así que un item que falla y no se arregla antes de
+  medianoche podía dejar de aparecer en el filtro para siempre, sin más
+  reintento posible.
+  - **Flujo 1:** `use_case_sync_failures` (Postgres,
+    `db/migrations/0004_...sql`, `UseCaseSyncFailureRepository`) — cada
+    fallo aislado se registra ahí (`resource_id`, `tenant`, `error`,
+    `attempts`, `first_failed_at`, `last_attempt_at`, `resolved_at`). En
+    cada `run()`, además del batch normal, se relee `WHERE resolved_at IS
+    NULL` y se reintenta por **Resource ID explícito** vía
+    `AuronClient.get_use_cases_by_resource_ids` (mismo parseo de filas que
+    `get_use_cases`, pero sin filtro de fecha ni de Engagement — usa
+    `[Register].[Resource ID] IN (...)`, sintaxis sin confirmar contra una
+    respuesta real, ver TODO en `_resource_ids_query`).
+  - **Flujo 2:** `worker_sync_failures` (Postgres,
+    `db/migrations/0007_...sql`, `WorkerSyncFailureRepository`) — mismo
+    patrón, pero con una diferencia de diseño obligada: Maisa/Noxus solo
+    ofrecen `get_updated_workers(día)`, no un lookup por ID, así que no hay
+    forma de "re-pedir" un worker fallido como sí se hace en Flujo 1. En su
+    lugar, se guarda una **foto completa del `Worker`** en el momento del
+    fallo (`workspace_id`, `tenant`, `use_case_id`, `worker_updated_at`,
+    `agent_name`, `agent_description`, `agent_owner`) y el reintento
+    reconstruye el `Worker` directamente desde esa foto, sin volver a
+    llamar a Maisa/Noxus — riesgo aceptado: si el dato cambió en origen
+    tras el fallo, el reintento usa la versión vieja.
+  - **Confirmado: ninguna de las dos tablas guarda los éxitos, solo
+    incidentes** — se mantienen pequeñas de forma natural (un éxito borra
+    su propio registro vía `mark_resolved`/`resolved_at`), sin necesitar
+    limpieza periódica. La auditoría de éxitos de Flujo 2 se resuelve
+    aparte, vía CloudWatch (logs estructurados del pod en EKS), no en
+    Postgres — ver punto 3 de "Pendiente de acordar" para el estado de
+    `MonitoringStore`.
+  - En ambos casos: un éxito marca `resolved_at`; un fallo (incluida la
+    propia escritura en la tabla de tracking) se aísla igual que cualquier
+    otro item, sin tumbar el resto del batch. `attempts` se trackea pero no
+    hay backoff/límite todavía — candidato para alertar ("N intentos sin
+    resolver") más adelante.
 
 **Endpoint expuesto:** `POST /flows/use-cases/sync`
 
@@ -356,14 +376,22 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      string fijo) por esta resolución dinámica. **Sin implementar todavía**
      — quedan datos concretos por confirmar antes de poder codificarlo (ver
      punto 14 de "Pendiente de acordar").
-4. `6AB` Se envían los IDs devueltos por las llamadas de creación (Use Case/Agent)
-   a una **BBDD de monitorización**, vía `MonitoringStore`, para poder auditar el
-   proceso. **Payload exacto: pendiente de cerrar** (el propio PPT lo marca como no
-   cerrado) — de mínimos: `worker_id`, `agent_id`, `use_case_id`, estado (éxito/error)
-   y timestamp.
+4. `6AB` **Confirmado e implementado.** El resultado de la ingesta (Use
+   Case/Agent) se registra vía `MonitoringStore.record`, que loguea un
+   JSON estructurado (`{"event": "worker_sync_result", "worker_id",
+   "agent_id", "use_case_id", "status", "timestamp"}`) por el logger
+   estándar — no hay tabla dedicada ni cliente de CloudWatch en el
+   microservicio, se apoya en que stdout del pod ya se recoge en EKS (ver
+   `core/logging.py`). Mismo criterio que en "Ventana de fechas" más
+   arriba: la auditoría de éxitos vive en CloudWatch, no en Postgres.
 5. `7A` Email a los admins del workspace cuando el worker no tenía `use_case_id` y
    se le asignó el genérico, para que lo regularicen manualmente. Confirmado que se
    implementa (no queda descartado ni solo como TODO).
+6. **Tracking de fallos: confirmado e implementado** — además del batch
+   normal de D-1, se reintentan los workers pendientes de
+   `worker_sync_failures` (`WorkerSyncFailureRepository.get_pending()`),
+   ver detalle completo (incluida la diferencia de diseño respecto a
+   Flujo 1) en "Ventana de fechas" más arriba.
 
 **Endpoint expuesto:** `POST /flows/workers/sync`
 
@@ -407,7 +435,8 @@ sinc_amn/
 │   ├── repositories/
 │   │   ├── use_case_label_repository.py  # tabla intermedia OpenPages<->Maisa (Postgres)
 │   │   ├── noxus_use_case_label_repository.py  # tabla intermedia OpenPages<->Noxus (Postgres)
-│   │   └── use_case_sync_failure_repository.py  # tracking de fallos Flujo 1 (Postgres)
+│   │   ├── use_case_sync_failure_repository.py  # tracking de fallos Flujo 1 (Postgres)
+│   │   └── worker_sync_failure_repository.py  # tracking de fallos Flujo 2 (Postgres, snapshot de Worker)
 │   ├── db/
 │   │   └── pool.py                    # pool asyncpg (lifecycle en main.py)
 │   ├── services/
@@ -422,7 +451,7 @@ sinc_amn/
 │   │   └── worker.py
 │   └── core/
 │       ├── checkpoint.py              # placeholder sin usar, ver "Ventana de fechas" (Flujo 1)
-│       ├── monitoring.py              # registro de IDs/estado (Flujo 2, paso 6AB)
+│       ├── monitoring.py              # registro de IDs/estado -> log JSON a CloudWatch (Flujo 2, paso 6AB)
 │       ├── notifications.py           # email a admins (Flujo 2, paso 7A)
 │       └── logging.py
 ├── db/migrations/
@@ -431,7 +460,8 @@ sinc_amn/
 │   ├── 0003_add_entity_to_maisa_use_case_labels.sql
 │   ├── 0004_create_use_case_sync_failures.sql
 │   ├── 0005_add_owner_to_maisa_use_case_labels.sql
-│   └── 0006_create_noxus_use_case_labels.sql
+│   ├── 0006_create_noxus_use_case_labels.sql
+│   └── 0007_create_worker_sync_failures.sql
 └── tests/
 ```
 
@@ -440,23 +470,31 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
 
 ## Pendiente de acordar (bloqueantes antes de implementar)
 
-1. Payload exacto de la BBDD de monitorización (paso 6AB).
+1. **Confirmado e implementado:** payload de la monitorización (paso 6AB)
+   — `MonitoringStore.record` loguea un JSON con `worker_id`, `agent_id`,
+   `use_case_id`, `status` (éxito/error) y `timestamp`. Abierto solo si
+   más adelante hace falta algo más (p.ej. el mensaje de error del
+   fallo, que hoy no se pasa a `MonitoringStore` — se pierde salvo que se
+   busque en el log de la excepción de al lado).
 2. Contrato REST real de Noxus (`create_label`/`update_label` en
    `clients/noxus_client.py`) — auth, URL, payload exacto. **Corregido:**
    ya no es un push directo por item, sino el mismo patrón de tabla
    intermedia que Maisa (`noxus_use_case_labels`, ver sección "4b. Destino
    Noxus" más arriba) — lo pendiente es solo el contrato REST del envío
    real ("Funcionalidad \* - Noxus"), no el diseño interno.
-3. Backend de persistencia de `MonitoringStore` (Flujo 2, paso 6AB).
+3. **Confirmado e implementado: backend de `MonitoringStore` (Flujo 2,
+   paso 6AB) = CloudWatch**, vía logs estructurados (JSON) del propio pod
+   en EKS — no una tabla en Postgres (descartado explícitamente, para no
+   acoplar la auditoría de éxitos a la misma BBDD de las tablas
+   intermedias). `MonitoringStore.record` ya no es un placeholder.
 4. Mecanismo de envío de email (7A): ¿SES, SMTP corporativo, servicio interno?
 5. **Confirmado e implementado:** estrategia de fallo parcial — aislamiento
-   por item en los tres servicios de orquestación (`UseCaseSyncService`,
-   `MaisaLabelSyncService`, `WorkerSyncService`), **más** reintento
-   selectivo por Resource ID para Flujo 1 (`use_case_sync_failures`), ver
-   sección "Ventana de fechas" más arriba para el detalle. Sigue pendiente
-   el mismo tracking para Flujo 2, bloqueado hasta tener el contrato real
-   de Maisa/Noxus (no sabemos si `get_updated_workers` ya da solape entre
-   días).
+   por item en los cuatro servicios de orquestación (`UseCaseSyncService`,
+   `MaisaLabelSyncService`, `NoxusLabelSyncService`, `WorkerSyncService`),
+   **más** reintento selectivo tanto en Flujo 1 (`use_case_sync_failures`,
+   por Resource ID) como en Flujo 2 (`worker_sync_failures`, por snapshot
+   del `Worker` — Maisa/Noxus no ofrecen lookup por ID), ver sección
+   "Ventana de fechas" más arriba para el detalle completo.
 6. ID del caso de uso genérico "Pendiente de regularizar" en Auron, **por entidad**.
 7. Contrato REST real de Maisa (`create_label`/`update_label` en
    `clients/maisa_client.py`) — auth, URL, payload exacto de la colección

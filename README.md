@@ -17,10 +17,13 @@ decisiones pendientes y la estructura del proyecto.
     real de cada uno.
 - **Implementado:** Flujo 2 (workers D-1, ambos tenants) —
   `WorkerSyncService`, resuelve el owner del caso de uso vía la tabla
-  intermedia correspondiente al tenant del worker.
+  intermedia correspondiente al tenant del worker, con reintento por
+  worker fallido (`WorkerSyncFailureRepository`, guarda una foto del
+  `Worker` porque Maisa/Noxus no ofrecen un lookup por ID) y monitorización
+  vía `MonitoringStore` (log JSON estructurado, recogido por CloudWatch).
 - **Pendiente:** ver la sección "Pendiente de acordar" en ARCHITECTURE.md
-  (contratos REST reales de Maisa/Noxus, backend de `MonitoringStore`,
-  envío de email, etc.).
+  (contratos REST reales de Maisa/Noxus, mecanismo de envío de email,
+  etc.).
 
 ## Desarrollo local
 
@@ -50,7 +53,8 @@ en orden: `0001_create_maisa_use_case_labels.sql`,
 `0003_add_entity_to_maisa_use_case_labels.sql`,
 `0004_create_use_case_sync_failures.sql`,
 `0005_add_owner_to_maisa_use_case_labels.sql`,
-`0006_create_noxus_use_case_labels.sql`) — aplicarlas contra la instancia de
+`0006_create_noxus_use_case_labels.sql`,
+`0007_create_worker_sync_failures.sql`) — aplicarlas contra la instancia de
 RDS Postgres antes de levantar el servicio.
 
 No commitear nunca valores reales de API key/token — son credenciales del

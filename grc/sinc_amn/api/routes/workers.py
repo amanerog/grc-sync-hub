@@ -10,6 +10,9 @@ from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
 )
 from sinc_amn.repositories.use_case_label_repository import UseCaseLabelRepository
+from sinc_amn.repositories.worker_sync_failure_repository import (
+    WorkerSyncFailureRepository,
+)
 from sinc_amn.services.worker_sync_service import WorkerSyncService
 
 router = APIRouter(prefix="/flows/workers", tags=["workers"])
@@ -30,6 +33,7 @@ async def sync_workers(response: Response) -> dict:
         notifier=AdminNotifier(),
         use_case_labels=UseCaseLabelRepository(get_pool()),
         noxus_use_case_labels=NoxusUseCaseLabelRepository(get_pool()),
+        sync_failures=WorkerSyncFailureRepository(get_pool()),
     )
     summary = await service.run()
     response.status_code = 202 if summary["failed"] == 0 else 207

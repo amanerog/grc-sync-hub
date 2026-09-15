@@ -15,6 +15,9 @@ from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
 )
 from sinc_amn.repositories.use_case_label_repository import UseCaseLabelRepository
+from sinc_amn.repositories.worker_sync_failure_repository import (
+    WorkerSyncFailureRepository,
+)
 from sinc_amn.services.worker_sync_service import WorkerSyncService
 
 
@@ -35,7 +38,7 @@ def _worker(**overrides) -> Worker:
 
 def _service(
     auron=None, maisa=None, noxus=None, monitoring=None, notifier=None,
-    use_case_labels=None, noxus_use_case_labels=None,
+    use_case_labels=None, noxus_use_case_labels=None, sync_failures=None,
 ):
     if use_case_labels is None:
         # Por defecto no hay owner en la tabla intermedia (los tests que lo
@@ -45,6 +48,9 @@ def _service(
     if noxus_use_case_labels is None:
         noxus_use_case_labels = AsyncMock(spec=NoxusUseCaseLabelRepository)
         noxus_use_case_labels.get_by_resource_id.return_value = None
+    if sync_failures is None:
+        sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
+        sync_failures.get_pending.return_value = []
     return WorkerSyncService(
         auron=auron or AsyncMock(spec=AuronClient),
         maisa=maisa or AsyncMock(spec=MaisaClient),
@@ -53,6 +59,7 @@ def _service(
         notifier=notifier or AsyncMock(spec=AdminNotifier),
         use_case_labels=use_case_labels,
         noxus_use_case_labels=noxus_use_case_labels,
+        sync_failures=sync_failures,
     )
 
 
@@ -189,6 +196,50 @@ async def test_run_isolates_failure_and_keeps_processing_rest_of_batch():
     assert summary == {"total": 2, "succeeded": 1, "failed": 1}
 
 
+async def test_run_retries_pending_worker_failures():
+    maisa = AsyncMock(spec=MaisaClient)
+    maisa.get_updated_workers.return_value = []
+    noxus = AsyncMock(spec=NoxusClient)
+    noxus.get_updated_workers.return_value = []
+    retried_worker = _worker(worker_id="W-OLD")
+    sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
+    sync_failures.get_pending.return_value = [retried_worker]
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+
+    service = _service(
+        auron=auron, maisa=maisa, noxus=noxus, sync_failures=sync_failures
+    )
+    summary = await service.run()
+
+    auron.create_agent.assert_awaited_once_with(
+        worker_id="W-OLD",
+        use_case_id="UC-1",
+        tenant="maisa",
+        name="Agente de prueba",
+        description="Descripcion de prueba",
+        use_case_owner=None,
+        agent_owner="agent-owner@example.com",
+    )
+    sync_failures.mark_resolved.assert_awaited_once_with("W-OLD")
+    assert summary == {"total": 1, "succeeded": 1, "failed": 0}
+
+
+async def test_run_with_no_pending_worker_failures_skips_retry():
+    maisa = AsyncMock(spec=MaisaClient)
+    maisa.get_updated_workers.return_value = []
+    noxus = AsyncMock(spec=NoxusClient)
+    noxus.get_updated_workers.return_value = []
+    sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
+    sync_failures.get_pending.return_value = []
+
+    service = _service(maisa=maisa, noxus=noxus, sync_failures=sync_failures)
+    summary = await service.run()
+
+    assert summary == {"total": 0, "succeeded": 0, "failed": 0}
+
+
 async def test_ingest_worker_creates_agent_and_notifies_when_use_case_missing():
     worker = _worker(use_case_id=None)
     auron = AsyncMock(spec=AuronClient)
@@ -239,17 +290,63 @@ async def test_ingest_worker_records_error_status_and_does_not_raise_on_failure(
 
 
 async def test_ingest_worker_isolates_monitoring_failure_too():
-    # MonitoringStore.record sigue en placeholder (NotImplementedError) por
-    # defecto - un fallo ahi tampoco debe romper el aislamiento del item.
+    # Un fallo al registrar en MonitoringStore (p.ej. si logging fallara)
+    # tampoco debe romper el aislamiento del item.
     worker = _worker()
     auron = AsyncMock(spec=AuronClient)
     auron.get_agent_by_worker_id.return_value = None
     auron.create_agent.return_value = {"id": "new-agent"}
     monitoring = AsyncMock(spec=MonitoringStore)
-    monitoring.record.side_effect = NotImplementedError
+    monitoring.record.side_effect = RuntimeError("logging blip")
 
     service = _service(auron=auron, monitoring=monitoring)
 
+    ok = await service._ingest_worker(worker)
+
+    assert ok is True
+
+
+async def test_ingest_worker_marks_failure_resolved_on_success():
+    worker = _worker()
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+    sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
+
+    service = _service(auron=auron, sync_failures=sync_failures)
+    ok = await service._ingest_worker(worker)
+
+    assert ok is True
+    sync_failures.mark_resolved.assert_awaited_once_with("W-1")
+    sync_failures.record_failure.assert_not_awaited()
+
+
+async def test_ingest_worker_records_failure_with_error_message():
+    worker = _worker()
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.side_effect = RuntimeError("boom")
+    sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
+
+    service = _service(auron=auron, sync_failures=sync_failures)
+    ok = await service._ingest_worker(worker)
+
+    assert ok is False
+    sync_failures.record_failure.assert_awaited_once_with(worker, "boom")
+    sync_failures.mark_resolved.assert_not_awaited()
+
+
+async def test_ingest_worker_isolates_sync_failures_tracking_error_too():
+    # El propio tracking (record_failure/mark_resolved) es auxiliar - un
+    # fallo ahi tampoco debe romper el aislamiento del item.
+    worker = _worker()
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+    sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
+    sync_failures.mark_resolved.side_effect = RuntimeError("db blip")
+
+    service = _service(auron=auron, sync_failures=sync_failures)
     ok = await service._ingest_worker(worker)
 
     assert ok is True
