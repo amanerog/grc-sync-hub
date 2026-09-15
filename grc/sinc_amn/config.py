@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # Noxus usan ids DISTINTOS (no es el mismo recurso).
     auron_maisa_ai_solution_id: str = "11342"
     auron_noxus_ai_solution_id: str = "15327"
+    # Flujo 2: field "3405" ("Identifier of the cloud account... en
+    # Development") de create_agent - confirmado que es el AWS account ID
+    # donde corre el propio microservicio, no un dato de Maisa/Noxus.
+    # Inyectado por el pipeline de despliegue (fijo por entidad/entorno, no
+    # se resuelve en tiempo de ejecucion via AWS SDK).
+    aws_account_id: str | None = None
 
     # Flujo 1: backend de checkpoint (pendiente de decidir: dynamodb/rds/configmap)
     checkpoint_backend: str = "configmap"

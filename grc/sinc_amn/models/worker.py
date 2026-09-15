@@ -24,8 +24,12 @@ class Worker(BaseModel):
     # tabla intermedia via UseCaseLabel.owner, no aqui), tambien recuperado
     # de Maisa/Noxus al sincronizar.
     agent_owner: str | None = None
-    # TODO: completar con el resto de campos del contrato real de Maisa/Noxus.
-    # Confirmado que AuronClient.create_agent los necesita (ver su docstring):
-    # version id del proveedor (field "3290") e identificador de la cuenta
-    # cloud donde esta desplegado en Development (field "3405"). Ninguno de
-    # los dos esta en el modelo todavia.
+    # "Version id of the provider" (field "3290") - confirmado que viene de
+    # Maisa/Noxus al sincronizar, igual que agent_name/agent_description.
+    # Opcional porque get_updated_workers sigue sin implementar - no
+    # confirmado si el proveedor lo da siempre relleno.
+    provider_version_id: str | None = None
+    # TODO: completar con el resto de campos del contrato real de Maisa/Noxus,
+    # si aparecen mas al confirmarlo. El otro campo pendiente de
+    # AuronClient.create_agent (field "3405", cuenta cloud) NO es un dato de
+    # Worker - resuelto como settings.aws_account_id (ver config.py).

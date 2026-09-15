@@ -128,6 +128,7 @@ class WorkerSyncService:
                     description=worker.agent_description,
                     use_case_owner=use_case_owner,
                     agent_owner=worker.agent_owner,
+                    provider_version_id=worker.provider_version_id,
                 )
             else:
                 agent = await self._auron.update_agent(
@@ -138,6 +139,7 @@ class WorkerSyncService:
                     description=worker.agent_description,
                     use_case_owner=use_case_owner,
                     agent_owner=worker.agent_owner,
+                    provider_version_id=worker.provider_version_id,
                 )
 
             if not had_use_case:

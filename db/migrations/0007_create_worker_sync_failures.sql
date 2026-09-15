@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS worker_sync_failures (
     agent_name          TEXT,
     agent_description   TEXT,
     agent_owner         TEXT,
+    provider_version_id TEXT,
     error               TEXT,
     attempts            INTEGER NOT NULL DEFAULT 1,
     first_failed_at     TIMESTAMPTZ NOT NULL,

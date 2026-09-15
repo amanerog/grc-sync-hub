@@ -35,9 +35,9 @@ class WorkerSyncFailureRepository:
                 INSERT INTO worker_sync_failures
                     (worker_id, workspace_id, tenant, use_case_id,
                      worker_updated_at, agent_name, agent_description,
-                     agent_owner, error, attempts, first_failed_at,
-                     last_attempt_at, resolved_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $10, NULL)
+                     agent_owner, provider_version_id, error, attempts,
+                     first_failed_at, last_attempt_at, resolved_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $11, NULL)
                 ON CONFLICT (worker_id) DO UPDATE SET
                     workspace_id = EXCLUDED.workspace_id,
                     tenant = EXCLUDED.tenant,
@@ -46,6 +46,7 @@ class WorkerSyncFailureRepository:
                     agent_name = EXCLUDED.agent_name,
                     agent_description = EXCLUDED.agent_description,
                     agent_owner = EXCLUDED.agent_owner,
+                    provider_version_id = EXCLUDED.provider_version_id,
                     error = EXCLUDED.error,
                     attempts = CASE
                         WHEN worker_sync_failures.resolved_at IS NULL
@@ -68,6 +69,7 @@ class WorkerSyncFailureRepository:
                 worker.agent_name,
                 worker.agent_description,
                 worker.agent_owner,
+                worker.provider_version_id,
                 error,
                 now,
             )
@@ -94,7 +96,7 @@ class WorkerSyncFailureRepository:
                 """
                 SELECT worker_id, workspace_id, tenant, use_case_id,
                        worker_updated_at, agent_name, agent_description,
-                       agent_owner
+                       agent_owner, provider_version_id
                 FROM worker_sync_failures
                 WHERE resolved_at IS NULL
                 """
@@ -109,6 +111,7 @@ class WorkerSyncFailureRepository:
                 agent_name=row["agent_name"],
                 agent_description=row["agent_description"],
                 agent_owner=row["agent_owner"],
+                provider_version_id=row["provider_version_id"],
             )
             for row in rows
         ]

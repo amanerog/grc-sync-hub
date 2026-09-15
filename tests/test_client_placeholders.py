@@ -48,6 +48,7 @@ async def test_auron_client_agent_placeholders_raise_not_implemented():
             description="Descripcion de prueba",
             use_case_owner="owner@example.com",
             agent_owner="agent-owner@example.com",
+            provider_version_id="v1",
         )
     with pytest.raises(NotImplementedError):
         await client.update_agent(
@@ -58,6 +59,7 @@ async def test_auron_client_agent_placeholders_raise_not_implemented():
             description="Descripcion de prueba",
             use_case_owner="owner@example.com",
             agent_owner="agent-owner@example.com",
+            provider_version_id="v1",
         )
 
     await client._client.aclose()

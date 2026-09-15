@@ -345,6 +345,7 @@ class AuronClient:
         description: str | None,
         use_case_owner: str | None,
         agent_owner: str | None,
+        provider_version_id: str | None,
     ) -> dict:
         """Da de alta un nuevo Agent en OpenPages y lo enlaza al caso de uso.
 
@@ -388,10 +389,16 @@ class AuronClient:
         - `"3293"` ("Creator of the AI Agent") = `agent_owner` - confirmado
           que es el owner del propio Agent (distinto del anterior),
           recuperado de Maisa/Noxus al sincronizar (`worker.agent_owner`).
-        - `"3290"` ("Version id of the provider") - dato de Maisa/Noxus no
-          presente en el modelo `Worker` actual.
+        - `"3290"` ("Version id of the provider") = `provider_version_id` -
+          **resuelto**: confirmado que viene de Maisa/Noxus al sincronizar
+          (`worker.provider_version_id`, ver `models/worker.py`), igual que
+          `agent_name`/`agent_description`.
         - `"3405"` ("Identifier of the cloud account... en Development") -
-          dato de Maisa/Noxus no presente en el modelo `Worker` actual.
+          **resuelto**: confirmado que NO es un dato de Maisa/Noxus, sino el
+          AWS account ID donde corre el propio microservicio
+          (`settings.aws_account_id`) - inyectado por el pipeline de
+          despliegue (fijo por entidad/entorno), no se resuelve via AWS SDK
+          en tiempo de ejecucion. Por eso no es parametro de este metodo.
 
         La implementacion final sera basicamente:
         ```
@@ -407,14 +414,15 @@ class AuronClient:
                 {"id": "3261", "dataType": "STRING_TYPE", "hasChanged": True, "value": use_case_owner},
                 {"id": "3293", "dataType": "STRING_TYPE", "hasChanged": True, "value": agent_owner},
                 {"id": "3290", "dataType": "STRING_TYPE", "hasChanged": True, "value": provider_version_id},
-                {"id": "3405", "dataType": "STRING_TYPE", "hasChanged": True, "value": cloud_account_id},
+                {"id": "3405", "dataType": "STRING_TYPE", "hasChanged": True, "value": settings.aws_account_id},
             ]},
         })
         ```
 
-        TODO: placeholder. Bloqueado por datos que el `Worker`/Flujo 2 no
-        traen hoy: `provider_version_id`, `cloud_account_id` (del contrato
-        real de Maisa/Noxus, ver TODO en `models/worker.py`).
+        TODO: placeholder. Bloqueado solo por lo que queda pendiente en el
+        punto 12 de "Pendiente de acordar" (ARCHITECTURE.md): que hacer si
+        `name`/`description`/`agent_owner`/`provider_version_id` llegan
+        `None`.
         """
         raise NotImplementedError
 
@@ -427,6 +435,7 @@ class AuronClient:
         description: str | None,
         use_case_owner: str | None,
         agent_owner: str | None,
+        provider_version_id: str | None,
     ) -> dict:
         """Actualiza un Agent existente en OpenPages (enlace a use case y,
         si cambiaron en origen, name/description/owners).
@@ -438,8 +447,11 @@ class AuronClient:
         si no se puede, podria hacer falta volver a `associate` para este
         caso concreto (re-vincular un Agent ya existente a otro use case).
 
+        `provider_version_id`/`settings.aws_account_id` (fields "3290"/
+        "3405"): resueltos, mismo criterio que `create_agent`.
+
         TODO: placeholder. Bloqueado por la duda de `primaryParentId` en PUT
-        explicada arriba, mas los mismos datos que create_agent
-        (`provider_version_id`/`cloud_account_id`).
+        explicada arriba, mas lo que queda pendiente en el punto 12 de
+        "Pendiente de acordar" (valores `None`).
         """
         raise NotImplementedError

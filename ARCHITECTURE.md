@@ -326,13 +326,28 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      genérico para otras asociaciones (Use Case↔Business Entity, Use
      Case↔AI solution), solo dejó de aplicar a este enlace concreto.
    - Si `use_case_id` no está presente → se resuelve/crea un caso de uso
-     **genérico "Pendiente de regularizar"** (ver más abajo; "Personal
-     Productivity", el otro caso de uso visto en el mismo Postman,
-     **confirmado que no aplica aquí** — es un caso de uso real de negocio,
-     no parte de la lógica de fallback) **y además** se dispara una
-     notificación (`7A`, confirmado que se implementa además del fallback
-     genérico, no en su lugar) a los admins del workspace correspondiente
-     para que lo regularicen.
+     **genérico "Pendiente de regularizar"** (ver más abajo — **el diseño
+     "por `(tenant, consumerId)`" que se había dado por confirmado se ha
+     revertido a indefinido**, sigue pendiente decidir a nivel funcional
+     cómo se hace, ver punto 13 de "Pendiente de acordar") **y además** se
+     dispara una notificación (`7A`, confirmado que se implementa además
+     del fallback genérico, no en su lugar) a los admins del workspace
+     correspondiente para que lo regularicen.
+   - **Caso distinto, confirmado: "Personal Productivity"** (`"personal
+     productivity - <user_id>"` en Auron) — **no** es parte de la lógica
+     de fallback anterior. Es un caso de uso real que el propio usuario
+     elige y asigna a sus workers **desde la herramienta de Maisa** (no es
+     un "cajón de sastre" impuesto por el microservicio ante la ausencia
+     de dato, sino una elección explícita del usuario) — así que cuando
+     aplica, `worker.use_case_id` **sí viene informado**, apuntando a este
+     caso de uso. El matiz: si ese caso de uso personal todavía no existe
+     en OpenPages para ese usuario en concreto, `sinc-amn` tendría que
+     crearlo sobre la marcha, igual que con "Pendiente de regularizar"
+     pero con un disparador distinto (no "`use_case_id` ausente", sino
+     "`use_case_id` resuelve a un Personal Productivity inexistente
+     todavía"). **Confirmado explícitamente sin implementar** — faltan
+     los mismos datos que en el punto 14 (de dónde sale el `user_id` y el
+     resto de campos del payload de creación).
    - **Confirmado — payload real completo de `create_agent`** (colección
      "TOM-Catalogación", `typeDefinitionId: "156"`, `name`/`description`
      **solo** como claves de nivel superior, sin duplicar en `fields.field`).
@@ -345,37 +360,42 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      "Santander-Fields-Agent:PlatformAgentID" — **ya resuelto**, era el
      bloqueante duro), `"3261"` ("Santander Fields:Owner" = `use_case_owner`,
      owner del **Use Case**, no del Agent — **ya resuelto**: se persiste en
-     la tabla intermedia durante Flujo 1, `WorkerSyncService` lo lee de ahí
-     sin GET adicional; solo cubre tenant Maisa, para Noxus llega `None`
-     hasta tener un mecanismo equivalente), `"3293"` ("Creator of the AI
-     Agent" = `agent_owner`, **ya resuelto**: owner del propio Agent,
-     recuperado de Maisa/Noxus, distinto del owner del Use Case), `"3290"`
-     ("Version id of the provider") y `"3405"` ("Identifier of the cloud
-     account... Development") — estos dos últimos son datos de Maisa/Noxus
-     que **`Worker` todavía no trae** (ver TODO en `models/worker.py`).
-   - **El caso de uso genérico ya no es un ID fijo simple — diseño
-     confirmado, aún sin implementar.** No es un único registro fijo por
-     entidad/tenant: es **uno distinto por `(tenant, consumerId)`**, con
-     nombre `"Pending Regularization <Maisa|Noxus> <consumerId>"`
-     (`consumerId` presumiblemente `worker.workspace_id`, a confirmar).
-     Mecanismo de tres pasos antes de crear el Agent, por cada combinación
-     tenant/consumerId nueva que aparezca: **(a)** consultar por nombre si
-     ya existe (`Query AI Use Case w/ name...`, `[Register].[Name] LIKE
-     'Pending%Regularization%<Tenant>%<consumerId>%...'`); **(b)** si no
-     existe, crearlo (`typeDefinitionId: "94"`, `primaryParentId` =
-     `settings.auron_generic_use_case_parent_id` — **confirmado que es
-     específico de entorno**, `"10135"` es el valor real de PRE (válido
-     para pruebas), falta el de PRO; y un payload de campos: País, Owner, AI
-     Solution Origin, Purpose, AI Type, Primary users); **(c)** asociarlo a
-     la AI solution del tenant (`associate`, `associationDefinitionId:
-     "64"`, `type: "CHILD"`, ya implementado genéricamente — **confirmado
-     que Maisa y Noxus usan target_id DISTINTOS**:
-     `settings.auron_maisa_ai_solution_id` (`"11342"`) y
-     `settings.auron_noxus_ai_solution_id` (`"15327"`)). Reemplazaría
-     `settings.generic_use_case_id` (hoy un único
-     string fijo) por esta resolución dinámica. **Sin implementar todavía**
-     — quedan datos concretos por confirmar antes de poder codificarlo (ver
-     punto 14 de "Pendiente de acordar").
+     la tabla intermedia de cada tenant durante Flujo 1, `WorkerSyncService`
+     lo lee de ahí sin GET adicional, para Maisa y Noxus por igual),
+     `"3293"` ("Creator of the AI Agent" = `agent_owner`, **ya resuelto**:
+     owner del propio Agent, recuperado de Maisa/Noxus, distinto del owner
+     del Use Case), `"3290"` ("Version id of the provider" =
+     `worker.provider_version_id`, **ya resuelto**: dato de Maisa/Noxus,
+     `Worker` ya lo trae) y `"3405"` ("Identifier of the cloud account...
+     Development", **ya resuelto**: no es un dato de Maisa/Noxus, es
+     `settings.aws_account_id` — la cuenta AWS donde corre el propio
+     microservicio, inyectada por el pipeline de despliegue).
+   - **El caso de uso genérico ya no sería un ID fijo simple — pero el
+     diseño exacto está otra vez sin confirmar a nivel funcional** (se
+     había dado por bueno "uno distinto por `(tenant, consumerId)`", con
+     `consumerId` = `worker.workspace_id` o similar, pero esa hipótesis
+     partía de confundir esta lógica con la de "Personal Productivity" —
+     ver más arriba. Sigue sin decidir **si** hace falta granularidad por
+     consumidor, o si un registro por `(tenant, entidad)` como se pensaba
+     originalmente es suficiente). Lo que sí sigue siendo válido,
+     independientemente de cómo se resuelva la granularidad (confirmado
+     por ejemplos reales de OpenPages, no depende de esta duda):
+     - Mecanismo de tres pasos antes de crear el Agent: **(a)** consultar
+       por nombre si ya existe (`Query AI Use Case w/ name...`); **(b)**
+       si no existe, crearlo (`typeDefinitionId: "94"`, `primaryParentId`
+       = `settings.auron_generic_use_case_parent_id` — **confirmado que es
+       específico de entorno**, `"10135"` es el valor real de PRE (válido
+       para pruebas), falta el de PRO; y un payload de campos: País,
+       Owner, AI Solution Origin, Purpose, AI Type, Primary users); **(c)**
+       asociarlo a la AI solution del tenant (`associate`,
+       `associationDefinitionId: "64"`, `type: "CHILD"`, ya implementado
+       genéricamente — **confirmado que Maisa y Noxus usan target_id
+       DISTINTOS**: `settings.auron_maisa_ai_solution_id` (`"11342"`) y
+       `settings.auron_noxus_ai_solution_id` (`"15327"`)).
+     - Reemplazaría `settings.generic_use_case_id` (hoy un único string
+       fijo) por esta resolución dinámica. **Sin implementar todavía** —
+       bloqueado tanto por la duda de diseño como por los datos concretos
+       que faltan (ver punto 13 de "Pendiente de acordar").
 4. `6AB` **Confirmado e implementado.** El resultado de la ingesta (Use
    Case/Agent) se registra vía `MonitoringStore.record`, que loguea un
    JSON estructurado (`{"event": "worker_sync_result", "worker_id",
@@ -495,7 +515,10 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
    por Resource ID) como en Flujo 2 (`worker_sync_failures`, por snapshot
    del `Worker` — Maisa/Noxus no ofrecen lookup por ID), ver sección
    "Ventana de fechas" más arriba para el detalle completo.
-6. ID del caso de uso genérico "Pendiente de regularizar" en Auron, **por entidad**.
+6. Diseño funcional del caso de uso genérico "Pendiente de regularizar" en
+   Auron — **duplicado del punto 13, ver ahí el detalle actualizado** (se
+   mantiene este número solo para no romper referencias cruzadas de otros
+   puntos de esta lista).
 7. Contrato REST real de Maisa (`create_label`/`update_label` en
    `clients/maisa_client.py`) — auth, URL, payload exacto de la colección
    `labels` en su DocumentDB.
@@ -529,31 +552,43 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
     `name`/`description`/`use_case_owner`/`agent_owner` **ya resueltos** —
     los tres primeros vienen de `Worker`, `use_case_owner` de la tabla
     intermedia vía `UseCaseLabelRepository.get_by_resource_id`):
-    - "Version id of the provider" (field `"3290"`) y el identificador de
-      cuenta cloud en Development (field `"3405"`) — datos de Maisa/Noxus
-      que `Worker` no trae todavía (ver TODO en `models/worker.py`).
+    - **Resuelto:** "Version id of the provider" (field `"3290"`) =
+      `worker.provider_version_id` (dato de Maisa/Noxus, `Worker` ya lo
+      trae). **Resuelto:** identificador de cuenta cloud en Development
+      (field `"3405"`) — no es un dato de Maisa/Noxus, es el AWS account ID
+      donde corre el propio microservicio (`settings.aws_account_id`,
+      inyectado por el pipeline de despliegue, no vía AWS SDK).
     - Si `primaryParentId` se puede cambiar en un `PUT` para `update_agent`
       (ningún ejemplo visto es de actualización, solo de creación).
-    - Qué hacer si `agent_name`/`agent_description`/`agent_owner` llegan
-      `None` (no confirmado si Maisa/Noxus los da siempre rellenos).
+    - Qué hacer si `agent_name`/`agent_description`/`agent_owner`/
+      `provider_version_id` llegan `None` (no confirmado si Maisa/Noxus los
+      da siempre rellenos).
     - `use_case_owner` para workers de tenant **Noxus**: **corregido** — ya
       no llega `None` por diseño, se resuelve igual que Maisa vía
       `NoxusUseCaseLabelRepository.get_by_resource_id` (ver punto 15).
-13. **Diseño confirmado del caso de uso genérico "Pendiente de
-    regularizar":** reemplaza `settings.generic_use_case_id` por un
-    registro **por `(tenant, consumerId)`**, no uno fijo por entidad (ver
-    detalle en el paso 3 del Flujo 2 más arriba). "Personal Productivity"
-    **confirmado que no forma parte de esta lógica** — es un caso de uso
-    real de negocio, no un fallback.
+13. **Diseño funcional del caso de uso genérico "Pendiente de
+    regularizar": otra vez sin confirmar** (revertido — ver detalle en el
+    paso 3 del Flujo 2 más arriba). Lo que se había apuntado como
+    "confirmado" (un registro **por `(tenant, consumerId)`**, con
+    `consumerId` = `worker.workspace_id` o similar) partía de una
+    hipótesis errónea: esa idea de "un caso por consumidor/usuario" en
+    realidad describe **"Personal Productivity"** (ver punto 16, nuevo),
+    no "Pendiente de regularizar". Sigue sin decidir si "Pendiente de
+    regularizar" necesita esa misma granularidad por consumidor, o si
+    basta un registro por `(tenant, entidad)` como en el planteamiento
+    original (punto 6). Lo que sí sigue siendo válido con independencia de
+    esa duda (confirmado por ejemplos reales, ver punto 14): el mecanismo
+    de tres pasos (consultar por nombre → crear si no existe →
+    `associate` a la AI solution del tenant) y `typeDefinitionId: "94"`.
 14. **Datos concretos que faltan para poder implementar el punto 13**
     (`primaryParentId` **ya resuelto** — `settings.auron_generic_use_case_parent_id`,
     confirmado específico de entorno, valor de PRE `"10135"` válido para
     pruebas, falta el de PRO; **id de destino de `associate` también ya
     resuelto** — `settings.auron_maisa_ai_solution_id`/
     `auron_noxus_ai_solution_id`, confirmado que Maisa y Noxus son distintos):
-    - Confirmar que `consumerId` en el nombre es `worker.workspace_id` (no
-      hay otro candidato obvio en el modelo `Worker` actual, pero no está
-      dicho explícitamente).
+    - Si hace falta granularidad por consumidor/usuario y, si es así, qué
+      dato la identifica (ver punto 13 — ya no se puede asumir
+      `worker.workspace_id` ni ningún otro candidato sin confirmar).
     - De dónde sale el valor real de los campos del payload de creación
       (País, Owner, AI Solution Origin, Purpose, AI Type, Primary users) —
       el ejemplo usa valores fijos (`Country: ESP`, `Purpose: Other`,
@@ -579,3 +614,18 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
       Maisa tiene documentadas para su tabla intermedia (ver "puntos clave
       de diseño" de la sección Maisa) — no confirmado, se asume por ahora
       el mismo comportamiento por simetría de diseño.
+16. **Confirmado, sin implementar: caso de uso "Personal Productivity"**
+    (`"personal productivity - <user_id>"` en Auron, ver paso 3 del Flujo
+    2 más arriba) — a diferencia de "Pendiente de regularizar" (que el
+    microservicio asigna automáticamente cuando falta el dato), este es
+    un caso de uso que **el propio usuario elige explícitamente desde
+    Maisa** para asignar sus workers ahí, así que `worker.use_case_id` ya
+    viene informado apuntando a él. El microservicio solo entra en juego
+    si ese caso de uso personal **todavía no existe en OpenPages** para
+    ese usuario — habría que crearlo sobre la marcha, con un mecanismo
+    presumiblemente análogo al de "Pendiente de regularizar" (consultar
+    por nombre → crear si no existe → `associate`), pero **confirmado
+    explícitamente que se deja sin implementar por ahora**: faltan los
+    mismos datos que en el punto 14 (de dónde sale el `user_id`, y el
+    resto de campos del payload de creación) y no hay ningún ejemplo real
+    todavía de este caso concreto.

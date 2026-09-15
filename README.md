@@ -42,7 +42,10 @@ Variables de entorno requeridas (ver `grc/sinc_amn/config.py`), prefijo
 `SINC_AMN_`: `AURON_API_KEY`, `AURON_ZEN_INSTANCE_ID`, `MAISA_BASE_URL`,
 `MAISA_API_KEY`, `NOXUS_BASE_URL`, `NOXUS_API_KEY`, `GENERIC_USE_CASE_ID`,
 `INTERMEDIATE_DB_DSN`, `MAISA_ORGANIZATION_ID`, `NOXUS_ORGANIZATION_ID`.
-`AURON_BASE_URL` es opcional: si no se setea, se deriva de
+`AWS_ACCOUNT_ID` (opcional hoy, pero necesaria para `create_agent`/
+`update_agent` — cuenta AWS donde corre el microservicio, field `"3405"`
+de OpenPages, fija por entidad/entorno, la inyecta el pipeline de
+despliegue). `AURON_BASE_URL` es opcional: si no se setea, se deriva de
 `AURON_ZEN_INSTANCE_ID`
 (`https://<zen_instance_id>.eu-de.openpages.cloud.ibm.com`); solo hace falta
 fijarla a mano si el host real no sigue ese patrón.
