@@ -115,11 +115,20 @@ lo hace otro componente, **"Funcionalidad \*"**, descrito más abajo.
 `POST /flows/maisa-labels/sync`, mismo cadencia horaria que "Funcionalidad 1".
 
 - La BBDD real de Maisa es **AWS DocumentDB** (compatible Mongo), colección
-  `labels`, backend en Go (`labels.go`/`label.go` según el PPT).
-- Contrato REST de Maisa **aún no confirmado** (a diferencia de OpenPages, para
-  esto no tenemos ejemplos de código reales todavía) — `MaisaClient.create_label`
-  / `update_label` son placeholders con `NotImplementedError`, mismo patrón que
-  la consulta masiva de OpenPages.
+  `labels`, backend en Go (`labels.go`/`label.go` según el PPT), expuesta vía
+  lo que el equipo de Maisa llama su "Studio API" (`settings.maisa_base_url`).
+- **`create_label`: confirmado e implementado**, vía ejemplo real (script
+  bash del equipo de Maisa) — confirmado que `/organizations/{org_id}/labels`
+  es esta misma colección `labels` (no otra funcionalidad distinta de
+  Maisa, aunque el ejemplo en sí solo creaba labels de prueba tipo
+  entorno/departamento, no casos de uso reales). `POST
+  {maisa_base_url}/organizations/{organization_id}/labels` — `organization_id`
+  va en la URL, no en el body; auth `Bearer` (coincide con lo que el
+  cliente ya hacía); body mínimo `{"name": ...}`, sin confirmar si admite
+  más campos; la respuesta trae `id` (el `maisa_label_id` a persistir).
+  `update_label` **sigue sin confirmar** — el ejemplo solo cubre creación,
+  no actualización (`MaisaClient.update_label` sigue en placeholder,
+  hipótesis sin confirmar: mismo patrón de URL con método `PUT`/`PATCH`).
 - `MaisaLabelSyncService.run()`: pide a `UseCaseLabelRepository.get_pending_for_maisa`
   los registros con `status IN ('new','modified')`; por cada uno, si no tiene
   `maisa_label_id` llama a `create_label` (alta), si ya lo tiene llama a
@@ -162,13 +171,17 @@ con dos diferencias puntuales:
   (Maisa) salvo dos diferencias confirmadas:
   - **`workspace_id`** (nuevo, no existe en `UseCaseLabel`): Noxus sí tiene
     workspace_id asociado al caso de uso (Maisa no, ver "Ventana de fechas"
-    más abajo y Flujo 2). **Sin confirmar en qué paso se rellena** —
-    `UseCase` (el dato de origen, la Query API de OpenPages) no trae un
-    campo workspace_id, así que la ingesta desde OpenPages (este mismo
-    paso) probablemente no puede poblarlo; `upsert_from_use_case` acepta
-    un parámetro opcional `workspace_id` y preserva el valor existente si
-    no se pasa uno nuevo (`COALESCE` en el `UPDATE`), pero **de dónde sale
-    ese valor y en qué paso se escribe sigue sin definir**.
+    más abajo y Flujo 2). **Confirmado e implementado: el dato no llega por
+    Flujo 1** (`UseCase`/OpenPages no lo trae — el parámetro opcional
+    `workspace_id` de `upsert_from_use_case` queda sin usar en la práctica,
+    nadie lo pasa desde ahí), **sino por Flujo 2**, la primera vez que
+    `WorkerSyncService` procesa un worker de Noxus para ese caso de uso
+    (`Worker.workspace_id`). Implementado como backfill:
+    `NoxusUseCaseLabelRepository.set_workspace_id_if_missing` solo escribe
+    si el campo está a `NULL` (confirmado — no se sobreescribe si varios
+    workers de distintos workspaces comparten el mismo caso de uso; el
+    primero en procesarse "gana"), y no toca `status` (no es un dato que
+    haya que reenviar a Noxus).
   - **`noxus_label_id`** en vez de `maisa_label_id` — mismo rol (id externo
     devuelto al hacer el push), solo renombrado.
   - El resto de columnas (`entity`, `owner`, `worker_count`, `status`,
@@ -254,8 +267,8 @@ con dos diferencias puntuales:
     su propio registro vía `mark_resolved`/`resolved_at`), sin necesitar
     limpieza periódica. La auditoría de éxitos de Flujo 2 se resuelve
     aparte, vía CloudWatch (logs estructurados del pod en EKS), no en
-    Postgres — ver punto 3 de "Pendiente de acordar" para el estado de
-    `MonitoringStore`.
+    Postgres — ver "Ya resueltos e implementados" en "Pendiente de
+    acordar" para el estado de `MonitoringStore`.
   - En ambos casos: un éxito marca `resolved_at`; un fallo (incluida la
     propia escritura en la tabla de tracking) se aísla igual que cualquier
     otro item, sin tumbar el resto del batch. `attempts` se trackea pero no
@@ -292,22 +305,47 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
 2. `2AB` El microservicio procesa la información combinada de ambos orígenes.
 3. Para cada worker, ingesta en Auron/OpenPages (`3A-5A` para origen Maisa,
    `3B-5B` para origen Noxus — mismo procedimiento, ejecutado por separado por
-   origen). **`AuronClient.create_agent`/`update_agent`/`get_agent_by_worker_id`
-   siguen en placeholder** (`NotImplementedError`) — ya no por falta del field
-   id de `worker_id` (resuelto), sino por los datos que faltan en `Worker`
-   (ver más abajo). Mecanismo confirmado por dos colecciones Postman reales
-   ("IBM Open Pages" y "TOM-Catalogación"):
+   origen). **`AuronClient.create_agent`/`update_agent`/`dissociate` ya
+   implementados** (ver "Ya resueltos e implementados" en "Pendiente de
+   acordar"); `get_agent_by_worker_id` **sigue en placeholder**
+   (`NotImplementedError`) por el mecanismo de búsqueda por campo (punto
+   6). Mecanismo confirmado por dos colecciones Postman reales ("IBM Open
+   Pages" y "TOM-Catalogación") más un ejemplo real del equipo de
+   Auron/IBM para la reasignación:
    - **`worker_id` ≠ `agent_id`**: OpenPages identifica el Agent por su propio
      `resource_id`, distinto del `worker_id` de Maisa/Noxus. Por eso el Agent
      debe llevar una **tag/campo personalizado `worker_id`** con el valor de
      Maisa/Noxus, y localizarlo requiere buscar por ese campo
-     (`AuronClient.get_agent_by_worker_id`), no un GET directo por ID.
-   - Si existe → `AuronClient.update_agent(agent_id, use_case_id, tenant, name,
-     description, use_case_owner, agent_owner)`. Si no existe →
-     `AuronClient.create_agent(worker_id, use_case_id, tenant, name,
-     description, use_case_owner, agent_owner)` — `tenant`/`name`/
-     `description`/`agent_owner` salen de `worker.tenant`/`worker.agent_name`/
-     `worker.agent_description`/`worker.agent_owner`; `use_case_owner` lo
+     (`AuronClient.get_agent_by_worker_id`), no un GET directo por ID. El
+     dict que devuelve debe incluir tanto `"id"` como `"primaryParentId"`
+     (el caso de uso al que está vinculado hoy), para la comparación del
+     punto siguiente.
+   - **Confirmado (equipo Auron/IBM): el caso de uso vinculado
+     (`primaryParentId`) NO se puede cambiar en un `PUT` ni sobrescribiendo
+     la asociación.** Solo los campos ("fields") del Agent son
+     actualizables así. Por eso `WorkerSyncService._ingest_worker`
+     distingue tres casos, no dos:
+     - Si el Agent no existe → `AuronClient.create_agent(worker_id,
+       use_case_id, tenant, name, description, use_case_owner,
+       agent_owner, provider_version_id)`.
+     - Si existe y su `primaryParentId` **coincide** con el `use_case_id`
+       actual → directamente `AuronClient.update_agent(agent_id, tenant,
+       name, description, use_case_owner, agent_owner,
+       provider_version_id)` (sin `use_case_id`: este método nunca toca el
+       enlace).
+     - Si existe pero su `primaryParentId` **difiere** (el caso de uso del
+       worker cambió) → **confirmado vía ejemplo real (equipo Auron/IBM):
+       se borra solo la asociación vieja y se crea la nueva**, sin tocar
+       el resto del Agent: `DELETE /grc/api/contents/{agent_id}/
+       associations?parents={use_case_id_viejo}` (`AuronClient.dissociate`)
+       seguido de `POST /grc/api/contents/{agent_id}/associations` con
+       `[{"id": use_case_id_nuevo, "associationDefinitionId": "966",
+       "type": "PARENT"}]` (`AuronClient.associate`, ya implementado) —
+       después, `update_agent` igual que en el caso anterior, para
+       sincronizar también el resto de campos.
+   - `tenant`/`name`/`description`/`agent_owner`/`provider_version_id`
+     salen de `worker.tenant`/`worker.agent_name`/`worker.agent_description`/
+     `worker.agent_owner`/`worker.provider_version_id`; `use_case_owner` lo
      busca `WorkerSyncService` en la tabla intermedia
      (`UseCaseLabelRepository.get_by_resource_id`), ver más abajo.
    - **Confirmado: `workspace_id` no es un dato del Agent.** El `workspace_id`
@@ -317,19 +355,21 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      arriba). Por eso `create_agent`/`update_agent` no lo reciben ni lo
      escriben — solo se sigue usando en la notificación `7A` (ver abajo), que
      es independiente del alta/actualización del Agent.
-   - El enlace Agent→Use Case es el campo **`primaryParentId`** del propio
-     payload de creación del Agent, confirmado via ejemplo real: `POST
-     {auron_base_url}/grc/api/contents` con `"primaryParentId":
-     "<use_case_resource_id>"` **en vez de** `parentFolderId`.
-     `AuronClient.create_content` ya implementa la llamada genérica
-     (confirmada y testeada); `associate` sigue siendo válido como bloque
-     genérico para otras asociaciones (Use Case↔Business Entity, Use
-     Case↔AI solution), solo dejó de aplicar a este enlace concreto.
+   - El enlace Agent→Use Case **en la creación** es el campo
+     **`primaryParentId`** del propio payload de creación del Agent,
+     confirmado via ejemplo real: `POST {auron_base_url}/grc/api/contents`
+     con `"primaryParentId": "<use_case_resource_id>"` **en vez de**
+     `parentFolderId`. `AuronClient.create_content` ya implementa la
+     llamada genérica (confirmada y testeada). **Matiz confirmado
+     después:** para *reasignar* ese enlace en un Agent ya existente, sí
+     se usa `associate`/`dissociate` (`associationDefinitionId "966"`,
+     `type "PARENT"`, ver punto anterior) — `primaryParentId` solo aplica
+     en la creación inicial.
    - Si `use_case_id` no está presente → se resuelve/crea un caso de uso
      **genérico "Pendiente de regularizar"** (ver más abajo — **el diseño
      "por `(tenant, consumerId)`" que se había dado por confirmado se ha
      revertido a indefinido**, sigue pendiente decidir a nivel funcional
-     cómo se hace, ver punto 13 de "Pendiente de acordar") **y además** se
+     cómo se hace, ver punto 7 de "Pendiente de acordar") **y además** se
      dispara una notificación (`7A`, confirmado que se implementa además
      del fallback genérico, no en su lugar) a los admins del workspace
      correspondiente para que lo regularicen.
@@ -346,8 +386,9 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      pero con un disparador distinto (no "`use_case_id` ausente", sino
      "`use_case_id` resuelve a un Personal Productivity inexistente
      todavía"). **Confirmado explícitamente sin implementar** — faltan
-     los mismos datos que en el punto 14 (de dónde sale el `user_id` y el
-     resto de campos del payload de creación).
+     los mismos datos que en el punto 7 de "Pendiente de acordar" (de
+     dónde sale el `user_id` y el resto de campos del payload de
+     creación).
    - **Confirmado — payload real completo de `create_agent`** (colección
      "TOM-Catalogación", `typeDefinitionId: "156"`, `name`/`description`
      **solo** como claves de nivel superior, sin duplicar en `fields.field`).
@@ -395,7 +436,7 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      - Reemplazaría `settings.generic_use_case_id` (hoy un único string
        fijo) por esta resolución dinámica. **Sin implementar todavía** —
        bloqueado tanto por la duda de diseño como por los datos concretos
-       que faltan (ver punto 13 de "Pendiente de acordar").
+       que faltan (ver punto 7 de "Pendiente de acordar").
 4. `6AB` **Confirmado e implementado.** El resultado de la ingesta (Use
    Case/Agent) se registra vía `MonitoringStore.record`, que loguea un
    JSON estructurado (`{"event": "worker_sync_result", "worker_id",
@@ -490,142 +531,100 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
 
 ## Pendiente de acordar (bloqueantes antes de implementar)
 
-1. **Confirmado e implementado:** payload de la monitorización (paso 6AB)
-   — `MonitoringStore.record` loguea un JSON con `worker_id`, `agent_id`,
-   `use_case_id`, `status` (éxito/error) y `timestamp`. Abierto solo si
-   más adelante hace falta algo más (p.ej. el mensaje de error del
-   fallo, que hoy no se pasa a `MonitoringStore` — se pierde salvo que se
-   busque en el log de la excepción de al lado).
-2. Contrato REST real de Noxus (`create_label`/`update_label` en
-   `clients/noxus_client.py`) — auth, URL, payload exacto. **Corregido:**
-   ya no es un push directo por item, sino el mismo patrón de tabla
-   intermedia que Maisa (`noxus_use_case_labels`, ver sección "4b. Destino
-   Noxus" más arriba) — lo pendiente es solo el contrato REST del envío
-   real ("Funcionalidad \* - Noxus"), no el diseño interno.
-3. **Confirmado e implementado: backend de `MonitoringStore` (Flujo 2,
-   paso 6AB) = CloudWatch**, vía logs estructurados (JSON) del propio pod
-   en EKS — no una tabla en Postgres (descartado explícitamente, para no
-   acoplar la auditoría de éxitos a la misma BBDD de las tablas
-   intermedias). `MonitoringStore.record` ya no es un placeholder.
-4. Mecanismo de envío de email (7A): ¿SES, SMTP corporativo, servicio interno?
-5. **Confirmado e implementado:** estrategia de fallo parcial — aislamiento
-   por item en los cuatro servicios de orquestación (`UseCaseSyncService`,
-   `MaisaLabelSyncService`, `NoxusLabelSyncService`, `WorkerSyncService`),
-   **más** reintento selectivo tanto en Flujo 1 (`use_case_sync_failures`,
-   por Resource ID) como en Flujo 2 (`worker_sync_failures`, por snapshot
-   del `Worker` — Maisa/Noxus no ofrecen lookup por ID), ver sección
-   "Ventana de fechas" más arriba para el detalle completo.
-6. Diseño funcional del caso de uso genérico "Pendiente de regularizar" en
-   Auron — **duplicado del punto 13, ver ahí el detalle actualizado** (se
-   mantiene este número solo para no romper referencias cruzadas de otros
-   puntos de esta lista).
-7. Contrato REST real de Maisa (`create_label`/`update_label` en
-   `clients/maisa_client.py`) — auth, URL, payload exacto de la colección
-   `labels` en su DocumentDB.
-8. Si finalmente hace falta el camino alternativo sin API de Maisa (descarga
-   diaria + carga separada por entidad/entorno, mencionado en el PPT como
-   fallback) — no implementado.
-9. Si/cuándo se retoma el write-back del `maisa_label_id` hacia OpenPages
-   (pospuesto explícitamente; `AuronClient.update_use_case` ya está listo).
-10. **Confirmado y implementado:** endpoint de creación (POST) de un recurso
-    genérico en OpenPages (`AuronClient.create_content`, `POST
-    {auron_base_url}/grc/api/contents`) y de asociación entre dos recursos
-    (`AuronClient.associate`, `POST {auron_base_url}/grc/api/contents/{id}/
-    associations`) — ambos vía un ejemplo real (colección Postman "IBM Open
-    Pages"). `create_agent`/`update_agent` seguirán en placeholder hasta
-    resolver el punto 11.
-11. **Resuelto: field id del campo personalizado `worker_id`** = `"3658"`
-    ("Santander-Fields-Agent:PlatformAgentID",
-    `settings.auron_agent_worker_id_field_id`) — era el único bloqueante
-    duro de `create_agent`/`get_agent_by_worker_id`, confirmado con el
-    nombre oficial del campo (catálogo de Auron), tras haber salido antes
-    del contexto de la colección Postman "TOM-Catalogación" ("Unique ID of
-    ai agent", solo un comentario descriptivo del ejemplo, no el nombre
-    real). `typeDefinitionId`
-    (`settings.auron_agent_type_definition_id`, default `"156"`) también
-    confirmado (tres ejemplos independientes, mismo valor). `workspace_id`
-    confirmado que no aplica al Agent (vive en el caso de uso, solo Noxus).
-    `name`/`description` van **solo** como claves top-level, no también en
-    `fields.field` (corrección respecto a una hipótesis anterior).
-12. **Bloqueantes que quedan para completar el payload real de
-    `create_agent`** (ver detalle en el paso 3 del Flujo 2 más arriba;
-    `name`/`description`/`use_case_owner`/`agent_owner` **ya resueltos** —
-    los tres primeros vienen de `Worker`, `use_case_owner` de la tabla
-    intermedia vía `UseCaseLabelRepository.get_by_resource_id`):
-    - **Resuelto:** "Version id of the provider" (field `"3290"`) =
-      `worker.provider_version_id` (dato de Maisa/Noxus, `Worker` ya lo
-      trae). **Resuelto:** identificador de cuenta cloud en Development
-      (field `"3405"`) — no es un dato de Maisa/Noxus, es el AWS account ID
-      donde corre el propio microservicio (`settings.aws_account_id`,
-      inyectado por el pipeline de despliegue, no vía AWS SDK).
-    - Si `primaryParentId` se puede cambiar en un `PUT` para `update_agent`
-      (ningún ejemplo visto es de actualización, solo de creación).
-    - Qué hacer si `agent_name`/`agent_description`/`agent_owner`/
-      `provider_version_id` llegan `None` (no confirmado si Maisa/Noxus los
-      da siempre rellenos).
-    - `use_case_owner` para workers de tenant **Noxus**: **corregido** — ya
-      no llega `None` por diseño, se resuelve igual que Maisa vía
-      `NoxusUseCaseLabelRepository.get_by_resource_id` (ver punto 15).
-13. **Diseño funcional del caso de uso genérico "Pendiente de
-    regularizar": otra vez sin confirmar** (revertido — ver detalle en el
-    paso 3 del Flujo 2 más arriba). Lo que se había apuntado como
-    "confirmado" (un registro **por `(tenant, consumerId)`**, con
-    `consumerId` = `worker.workspace_id` o similar) partía de una
-    hipótesis errónea: esa idea de "un caso por consumidor/usuario" en
-    realidad describe **"Personal Productivity"** (ver punto 16, nuevo),
-    no "Pendiente de regularizar". Sigue sin decidir si "Pendiente de
-    regularizar" necesita esa misma granularidad por consumidor, o si
-    basta un registro por `(tenant, entidad)` como en el planteamiento
-    original (punto 6). Lo que sí sigue siendo válido con independencia de
-    esa duda (confirmado por ejemplos reales, ver punto 14): el mecanismo
-    de tres pasos (consultar por nombre → crear si no existe →
-    `associate` a la AI solution del tenant) y `typeDefinitionId: "94"`.
-14. **Datos concretos que faltan para poder implementar el punto 13**
-    (`primaryParentId` **ya resuelto** — `settings.auron_generic_use_case_parent_id`,
-    confirmado específico de entorno, valor de PRE `"10135"` válido para
-    pruebas, falta el de PRO; **id de destino de `associate` también ya
-    resuelto** — `settings.auron_maisa_ai_solution_id`/
-    `auron_noxus_ai_solution_id`, confirmado que Maisa y Noxus son distintos):
-    - Si hace falta granularidad por consumidor/usuario y, si es así, qué
-      dato la identifica (ver punto 13 — ya no se puede asumir
-      `worker.workspace_id` ni ningún otro candidato sin confirmar).
-    - De dónde sale el valor real de los campos del payload de creación
-      (País, Owner, AI Solution Origin, Purpose, AI Type, Primary users) —
-      el ejemplo usa valores fijos (`Country: ESP`, `Purpose: Other`,
-      `Primary users: Other`) que no está claro si son literales fijos para
-      todo caso "Pendiente de regularizar", o si deberían variar según
-      datos reales del consumidor que hoy no tenemos.
-15. **Confirmado, pendiente de detalle: tabla intermedia propia para
-    Noxus** (`noxus_use_case_labels` / `NoxusUseCaseLabel`, corrige el
-    diseño anterior de push directo — ver sección "4b. Destino Noxus" y
-    "'Funcionalidad \* - Noxus'" más arriba). Mismos campos que la de
-    Maisa salvo `workspace_id` (nuevo) y `noxus_label_id` (en vez de
-    `maisa_label_id`, mismo concepto: el id que devuelve Noxus al
-    hacer el alta/actualización del label — igual que `worker_count`,
-    mismo tratamiento que Maisa). Queda pendiente:
-    - En qué paso/momento se rellena `workspace_id` en
-      `NoxusUseCaseLabel` — hoy `NoxusUseCaseLabelRepository
-      .upsert_from_use_case` lo acepta como parámetro opcional pero nadie
-      lo pasa todavía (Flujo 1 no tiene ese dato disponible desde
-      `AuronClient.get_use_cases`).
-    - Valor real de `settings.noxus_organization_id` (hoy `None`,
-      equivalente a `maisa_organization_id` pero sin confirmar con Noxus).
-    - Si existen para Noxus las mismas restricciones/particularidades que
-      Maisa tiene documentadas para su tabla intermedia (ver "puntos clave
-      de diseño" de la sección Maisa) — no confirmado, se asume por ahora
-      el mismo comportamiento por simetría de diseño.
-16. **Confirmado, sin implementar: caso de uso "Personal Productivity"**
-    (`"personal productivity - <user_id>"` en Auron, ver paso 3 del Flujo
-    2 más arriba) — a diferencia de "Pendiente de regularizar" (que el
-    microservicio asigna automáticamente cuando falta el dato), este es
-    un caso de uso que **el propio usuario elige explícitamente desde
-    Maisa** para asignar sus workers ahí, así que `worker.use_case_id` ya
-    viene informado apuntando a él. El microservicio solo entra en juego
-    si ese caso de uso personal **todavía no existe en OpenPages** para
-    ese usuario — habría que crearlo sobre la marcha, con un mecanismo
-    presumiblemente análogo al de "Pendiente de regularizar" (consultar
-    por nombre → crear si no existe → `associate`), pero **confirmado
-    explícitamente que se deja sin implementar por ahora**: faltan los
-    mismos datos que en el punto 14 (de dónde sale el `user_id`, y el
-    resto de campos del payload de creación) y no hay ningún ejemplo real
-    todavía de este caso concreto.
+### Bloqueantes abiertos
+
+1. **Contrato REST real de Noxus** (`create_label`/`update_label` en
+   `clients/noxus_client.py`) — auth, URL, payload exacto. El diseño
+   interno ya está resuelto (tabla intermedia, igual que Maisa, ver
+   sección "4b. Destino Noxus" más arriba); lo que falta es solo el
+   contrato de envío real. Incluye, cuando llegue ese contrato (mismo
+   origen, no son preguntas aparte): las "restricciones de diseño"
+   equivalentes a las que el PPT documenta para Maisa (índice único,
+   límites de `name`, cómo mantiene Noxus su propio `workerCount`, etc.) y
+   si Noxus tiene un concepto de "organizationId" equivalente al de Maisa
+   (`settings.noxus_organization_id`, hoy sin valor).
+2. **`MaisaClient.update_label`**: `create_label` ya está confirmado e
+   implementado (ver "Ya resueltos e implementados" más abajo); falta solo
+   la actualización — el ejemplo real visto solo cubre creación, sin
+   confirmar método HTTP/URL de actualización (hipótesis sin confirmar:
+   mismo patrón de URL con `PUT`/`PATCH`). Tampoco confirmado si el body
+   de creación admite más campos aparte de `name` (el ejemplo solo creaba
+   labels de prueba tipo entorno/departamento, no casos de uso reales).
+3. **Mecanismo de envío de email (7A)**: ¿SES, SMTP corporativo, servicio
+   interno?
+4. **Camino alternativo sin API de Maisa** (descarga diaria + carga
+   separada por entidad/entorno, mencionado en el PPT como fallback) — sin
+   decidir si hace falta, no implementado.
+5. **Write-back del `maisa_label_id` hacia OpenPages** — pospuesto
+   explícitamente, sin fecha para retomarlo (`AuronClient.update_use_case`
+   ya está listo para cuando se necesite).
+6. **`get_agent_by_worker_id`**: pendiente el endpoint real de búsqueda de
+   un Agent por su campo personalizado `worker_id` (probablemente el mismo
+   mecanismo de consulta masiva que `get_use_cases`, filtrando por field id
+   `"3658"`) — ningún ejemplo real visto hasta ahora es de búsqueda, solo
+   de creación.
+7. **Diseño funcional del caso de uso genérico "Pendiente de
+   regularizar"**: sin confirmar si necesita granularidad por
+   consumidor/usuario (un registro por `(tenant, consumerId)`) o basta uno
+   por `(tenant, entidad)` — la hipótesis anterior de que era por
+   consumidor partía de confundirlo con "Personal Productivity" (punto 8),
+   se ha revertido (ver paso 3 del Flujo 2 más arriba). Lo que sí sigue
+   siendo válido con independencia de esa duda (confirmado por ejemplos
+   reales): el mecanismo de tres pasos (consultar por nombre → crear si no
+   existe → `associate` a la AI solution del tenant), `typeDefinitionId:
+   "94"`, `primaryParentId` (`settings.auron_generic_use_case_parent_id`,
+   específico de entorno, falta el valor de PRO) y el target de `associate`
+   (`settings.auron_maisa_ai_solution_id`/`auron_noxus_ai_solution_id`,
+   confirmado que son distintos). Falta además: de dónde sale el valor real
+   de los campos del payload de creación (País, Owner, AI Solution Origin,
+   Purpose, AI Type, Primary users) — el ejemplo usa valores fijos
+   (`Country: ESP`, `Purpose: Other`, `Primary users: Other`) sin confirmar
+   si son literales para todo caso o deberían variar.
+8. **Caso de uso "Personal Productivity"** (`"personal productivity -
+   <user_id>"` en Auron, ver paso 3 del Flujo 2 más arriba) — confirmado el
+   concepto (el propio usuario lo elige desde Maisa para sus workers, así
+   que `worker.use_case_id` ya viene informado apuntando a él; el
+   microservicio solo entra en juego si ese caso personal **todavía no
+   existe en OpenPages**), pero la creación-si-no-existe se deja
+   **explícitamente sin implementar**: faltan los mismos datos que en el
+   punto 7 (de dónde sale el `user_id` y el resto del payload) y no hay
+   ningún ejemplo real todavía de este caso concreto.
+
+### Ya resueltos e implementados (referencia rápida)
+
+- **Monitorización (Flujo 2, paso 6AB)**: `MonitoringStore.record` loguea
+  un JSON (`worker_id`, `agent_id`, `use_case_id`, `status`, `timestamp`)
+  por el logger estándar → CloudWatch, no una tabla en Postgres.
+- **Estrategia de fallo parcial**: aislamiento por item en los cuatro
+  servicios de orquestación, más reintento selectivo en Flujo 1
+  (`use_case_sync_failures`, por Resource ID) y Flujo 2
+  (`worker_sync_failures`, por snapshot del `Worker`) — ver "Ventana de
+  fechas" más arriba para el detalle.
+- **Endpoints genéricos de OpenPages**: creación (`AuronClient
+  .create_content`) y asociación (`AuronClient.associate`), field id de
+  `worker_id` (`"3658"`) y `typeDefinitionId` del Agent (`"156"`).
+- **`create_agent` completo**: campos "3290"
+  (`worker.provider_version_id`) y "3405" (`settings.aws_account_id`)
+  resueltos; manejo de `None` implementado (`name`/`agent_owner`/
+  `provider_version_id` obligatorios → `ValueError`, aislado como
+  cualquier otro fallo; `description` opcional → se omite del payload).
+- **Tabla intermedia de Noxus** (`noxus_use_case_labels`): mismo diseño
+  que Maisa, con `workspace_id` (backfill desde Flujo 2,
+  `set_workspace_id_if_missing`) y `noxus_label_id` como diferencias.
+- **`MaisaClient.create_label`**: `POST /organizations/{organization_id}/
+  labels`, `organization_id` en la URL, auth `Bearer`, body `{"name":
+  ...}`, respuesta con `id` (`maisa_label_id`) — ver "Funcionalidad \*"
+  más arriba para el detalle completo del ejemplo real.
+- **`update_agent` completo**: confirmado que el caso de uso vinculado
+  (`primaryParentId`) NO se puede cambiar en un `PUT` — solo actualiza los
+  campos ("fields") del Agent, sin `use_case_id` como parámetro. Vía
+  `AuronClient.update_content` (PUT genérico, mismo endpoint que
+  `create_content` usa para el POST).
+- **Reasignación del caso de uso vinculado a un Agent (`AuronClient
+  .dissociate` + `associate`)**: confirmado vía ejemplo real del equipo
+  Auron/IBM — cuando el caso de uso de un worker cambia,
+  `WorkerSyncService` borra solo la asociación vieja (`DELETE
+  /grc/api/contents/{agent_id}/associations?parents={use_case_id_viejo}`)
+  y crea la nueva (`associate`, `associationDefinitionId "966"`, `type
+  "PARENT"`) — no hace falta borrar/recrear el Agent entero (una hipótesis
+  anterior, descartada).

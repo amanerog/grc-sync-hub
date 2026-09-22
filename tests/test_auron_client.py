@@ -2,6 +2,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
+import pytest
 
 from sinc_amn.clients.auron_client import (
     AuronClient,
@@ -380,5 +381,342 @@ async def test_associate_posts_single_element_list_with_expected_shape():
     assert captured == [
         [{"id": "35375", "associationDefinitionId": "966", "type": "PARENT"}]
     ]
+
+    await http_client.aclose()
+
+
+def _make_dissociate_client(captured: list[str]) -> httpx.AsyncClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(
+                200, json={"access_token": "tok-123", "expires_in": 3600}
+            )
+
+        assert request.method == "DELETE"
+        assert request.url.path == "/grc/api/contents/35378/associations"
+        captured.append(str(request.url))
+        return httpx.Response(200)
+
+    return httpx.AsyncClient(
+        base_url=settings.auron_base_url, transport=httpx.MockTransport(handler)
+    )
+
+
+async def test_dissociate_deletes_with_parents_query_param():
+    captured: list[str] = []
+    http_client = _make_dissociate_client(captured)
+    auron = AuronClient(client=http_client)
+
+    await auron.dissociate(resource_id="35378", parent_id="35375")
+
+    assert len(captured) == 1
+    assert "parents=35375" in captured[0]
+
+    await http_client.aclose()
+
+
+async def test_create_agent_posts_expected_payload(monkeypatch):
+    monkeypatch.setattr(settings, "aws_account_id", "111122223333")
+    captured: list[dict] = []
+    http_client = _make_create_content_client(captured)
+    auron = AuronClient(client=http_client)
+
+    result = await auron.create_agent(
+        worker_id="W-1",
+        use_case_id="UC-1",
+        tenant="noxus",
+        name="Agente de prueba",
+        description="Descripcion de prueba",
+        use_case_owner="owner@example.com",
+        agent_owner="agent-owner@example.com",
+        provider_version_id="v1.0",
+    )
+
+    assert result == {"id": "35378"}
+    assert captured == [
+        {
+            "name": "[Agent Noxus] Agente de prueba",
+            "description": "Descripcion de prueba",
+            "typeDefinitionId": settings.auron_agent_type_definition_id,
+            "primaryParentId": "UC-1",
+            "fields": {
+                "field": [
+                    {
+                        "id": settings.auron_agent_worker_id_field_id,
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": "W-1",
+                    },
+                    {
+                        "id": "3261",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": "owner@example.com",
+                    },
+                    {
+                        "id": "3293",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": "agent-owner@example.com",
+                    },
+                    {
+                        "id": "3290",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": "v1.0",
+                    },
+                    {
+                        "id": "3405",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": "111122223333",
+                    },
+                ]
+            },
+        }
+    ]
+
+    await http_client.aclose()
+
+
+async def test_create_agent_omits_description_when_missing():
+    captured: list[dict] = []
+    http_client = _make_create_content_client(captured)
+    auron = AuronClient(client=http_client)
+
+    await auron.create_agent(
+        worker_id="W-1",
+        use_case_id="UC-1",
+        tenant="maisa",
+        name="Agente de prueba",
+        description=None,
+        use_case_owner=None,
+        agent_owner="agent-owner@example.com",
+        provider_version_id="v1.0",
+    )
+
+    assert "description" not in captured[0]
+    assert captured[0]["name"] == "[Agent Maisa] Agente de prueba"
+
+    await http_client.aclose()
+
+
+async def test_create_agent_raises_when_name_missing():
+    http_client = httpx.AsyncClient(base_url=settings.auron_base_url)
+    auron = AuronClient(client=http_client)
+
+    with pytest.raises(ValueError):
+        await auron.create_agent(
+            worker_id="W-1",
+            use_case_id="UC-1",
+            tenant="maisa",
+            name=None,
+            description="Descripcion de prueba",
+            use_case_owner="owner@example.com",
+            agent_owner="agent-owner@example.com",
+            provider_version_id="v1.0",
+        )
+
+    await http_client.aclose()
+
+
+async def test_create_agent_raises_when_agent_owner_missing():
+    http_client = httpx.AsyncClient(base_url=settings.auron_base_url)
+    auron = AuronClient(client=http_client)
+
+    with pytest.raises(ValueError):
+        await auron.create_agent(
+            worker_id="W-1",
+            use_case_id="UC-1",
+            tenant="maisa",
+            name="Agente de prueba",
+            description="Descripcion de prueba",
+            use_case_owner="owner@example.com",
+            agent_owner=None,
+            provider_version_id="v1.0",
+        )
+
+    await http_client.aclose()
+
+
+async def test_create_agent_raises_when_provider_version_id_missing():
+    http_client = httpx.AsyncClient(base_url=settings.auron_base_url)
+    auron = AuronClient(client=http_client)
+
+    with pytest.raises(ValueError):
+        await auron.create_agent(
+            worker_id="W-1",
+            use_case_id="UC-1",
+            tenant="maisa",
+            name="Agente de prueba",
+            description="Descripcion de prueba",
+            use_case_owner="owner@example.com",
+            agent_owner="agent-owner@example.com",
+            provider_version_id=None,
+        )
+
+    await http_client.aclose()
+
+
+def _make_update_content_client(captured: list[tuple[str, dict]]) -> httpx.AsyncClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(
+                200, json={"access_token": "tok-123", "expires_in": 3600}
+            )
+
+        assert request.method == "PUT"
+        captured.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"id": "35378"})
+
+    return httpx.AsyncClient(
+        base_url=settings.auron_base_url, transport=httpx.MockTransport(handler)
+    )
+
+
+async def test_update_content_puts_payload_as_is():
+    captured: list[tuple[str, dict]] = []
+    http_client = _make_update_content_client(captured)
+    auron = AuronClient(client=http_client)
+    payload = {"name": "[Agent Noxus] Prueba"}
+
+    result = await auron.update_content("35378", payload)
+
+    assert result == {"id": "35378"}
+    assert captured == [("/grc/api/contents/35378", payload)]
+
+    await http_client.aclose()
+
+
+async def test_update_agent_puts_expected_payload_without_primary_parent_id(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "aws_account_id", "111122223333")
+    captured: list[tuple[str, dict]] = []
+    http_client = _make_update_content_client(captured)
+    auron = AuronClient(client=http_client)
+
+    result = await auron.update_agent(
+        agent_id="35378",
+        tenant="noxus",
+        name="Agente de prueba",
+        description="Descripcion de prueba",
+        use_case_owner="owner@example.com",
+        agent_owner="agent-owner@example.com",
+        provider_version_id="v1.0",
+    )
+
+    assert result == {"id": "35378"}
+    path, payload = captured[0]
+    assert path == "/grc/api/contents/35378"
+    assert "primaryParentId" not in payload
+    assert payload == {
+        "name": "[Agent Noxus] Agente de prueba",
+        "description": "Descripcion de prueba",
+        "fields": {
+            "field": [
+                {
+                    "id": "3261",
+                    "dataType": "STRING_TYPE",
+                    "hasChanged": True,
+                    "value": "owner@example.com",
+                },
+                {
+                    "id": "3293",
+                    "dataType": "STRING_TYPE",
+                    "hasChanged": True,
+                    "value": "agent-owner@example.com",
+                },
+                {
+                    "id": "3290",
+                    "dataType": "STRING_TYPE",
+                    "hasChanged": True,
+                    "value": "v1.0",
+                },
+                {
+                    "id": "3405",
+                    "dataType": "STRING_TYPE",
+                    "hasChanged": True,
+                    "value": "111122223333",
+                },
+            ]
+        },
+    }
+
+    await http_client.aclose()
+
+
+async def test_update_agent_omits_description_when_missing():
+    captured: list[tuple[str, dict]] = []
+    http_client = _make_update_content_client(captured)
+    auron = AuronClient(client=http_client)
+
+    await auron.update_agent(
+        agent_id="35378",
+        tenant="maisa",
+        name="Agente de prueba",
+        description=None,
+        use_case_owner=None,
+        agent_owner="agent-owner@example.com",
+        provider_version_id="v1.0",
+    )
+
+    _, payload = captured[0]
+    assert "description" not in payload
+    assert payload["name"] == "[Agent Maisa] Agente de prueba"
+
+    await http_client.aclose()
+
+
+async def test_update_agent_raises_when_name_missing():
+    http_client = httpx.AsyncClient(base_url=settings.auron_base_url)
+    auron = AuronClient(client=http_client)
+
+    with pytest.raises(ValueError):
+        await auron.update_agent(
+            agent_id="35378",
+            tenant="maisa",
+            name=None,
+            description="Descripcion de prueba",
+            use_case_owner="owner@example.com",
+            agent_owner="agent-owner@example.com",
+            provider_version_id="v1.0",
+        )
+
+    await http_client.aclose()
+
+
+async def test_update_agent_raises_when_agent_owner_missing():
+    http_client = httpx.AsyncClient(base_url=settings.auron_base_url)
+    auron = AuronClient(client=http_client)
+
+    with pytest.raises(ValueError):
+        await auron.update_agent(
+            agent_id="35378",
+            tenant="maisa",
+            name="Agente de prueba",
+            description="Descripcion de prueba",
+            use_case_owner="owner@example.com",
+            agent_owner=None,
+            provider_version_id="v1.0",
+        )
+
+    await http_client.aclose()
+
+
+async def test_update_agent_raises_when_provider_version_id_missing():
+    http_client = httpx.AsyncClient(base_url=settings.auron_base_url)
+    auron = AuronClient(client=http_client)
+
+    with pytest.raises(ValueError):
+        await auron.update_agent(
+            agent_id="35378",
+            tenant="maisa",
+            name="Agente de prueba",
+            description="Descripcion de prueba",
+            use_case_owner="owner@example.com",
+            agent_owner="agent-owner@example.com",
+            provider_version_id=None,
+        )
 
     await http_client.aclose()

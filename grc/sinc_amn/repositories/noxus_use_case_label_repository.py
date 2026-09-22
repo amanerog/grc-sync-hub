@@ -113,6 +113,33 @@ class NoxusUseCaseLabelRepository:
             )
         return NoxusUseCaseLabel(**dict(row)) if row else None
 
+    async def set_workspace_id_if_missing(
+        self, resource_id: str, organization_id: str, workspace_id: str
+    ) -> None:
+        """Rellena `workspace_id` solo si el registro todavia no lo tiene.
+
+        Confirmado: el dato viene de Noxus a traves del `Worker` (Flujo 2),
+        no de OpenPages (Flujo 1 no lo tiene disponible). No toca `status`
+        - no es un dato que haya que reenviar a Noxus, Noxus ya lo conoce.
+        Solo escribe si esta a NULL (confirmado: no se sobreescribe un
+        valor ya guardado, para no depender del orden de procesado si
+        varios workers de distintos workspaces comparten el mismo caso de
+        uso).
+        """
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE noxus_use_case_labels
+                SET workspace_id = $1, updated_at = $2
+                WHERE organization_id = $3 AND source_resource_id = $4
+                      AND workspace_id IS NULL
+                """,
+                workspace_id,
+                datetime.now(timezone.utc),
+                organization_id,
+                resource_id,
+            )
+
     async def get_pending_for_noxus(self, organization_id: str) -> list[NoxusUseCaseLabel]:
         """Registros nuevos/modificados desde el ultimo sync a Noxus."""
         async with self._pool.acquire() as conn:

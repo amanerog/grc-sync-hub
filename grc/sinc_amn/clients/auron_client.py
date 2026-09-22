@@ -262,6 +262,47 @@ class AuronClient:
         response.raise_for_status()
         return response.json()
 
+    async def update_content(self, resource_id: str, payload: dict) -> dict:
+        """PUT /grc/api/contents/{resource_id} - actualiza un recurso generico en OpenPages.
+
+        Mismo patron que `create_content` (bloque generico, sin
+        typeDefinitionId-especifico), pero para PUT en vez de POST -
+        confirmado que el endpoint es el mismo `/grc/api/contents/{id}` ya
+        usado por `update_use_case` (PUT confirmado via ejemplo real para
+        Use Case). Bloque de construccion generico para `update_agent`; no
+        se ha visto un ejemplo real especifico de actualizacion de un
+        Agent, se asume el mismo mecanismo por ser la misma familia de
+        endpoint/verbo ya confirmada.
+        """
+        headers = await self._auth_headers()
+        response = await self._client.put(
+            f"/grc/api/contents/{resource_id}", headers=headers, json=payload
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def dissociate(self, resource_id: str, parent_id: str) -> None:
+        """DELETE /grc/api/contents/{resource_id}/associations?parents={parent_id}
+        - elimina la asociacion PARENT de resource_id con parent_id.
+
+        Confirmado via ejemplo real (equipo Auron/IBM): para reasignar el
+        caso de uso vinculado a un Agent (`primaryParentId` no se puede
+        cambiar directamente, ni en un `PUT` ni sobrescribiendo la
+        asociacion existente), primero hay que borrar la asociacion vieja
+        asi, y luego crear la nueva via `associate` (mismo
+        `associationDefinitionId "966"`, `type "PARENT"` que la asociacion
+        Agent->Use Case) - **no** hace falta borrar/recrear el Agent
+        entero, solo la asociacion puntual. Ver
+        `WorkerSyncService._ingest_worker`.
+        """
+        headers = await self._auth_headers()
+        response = await self._client.delete(
+            f"/grc/api/contents/{resource_id}/associations",
+            headers=headers,
+            params={"parents": parent_id},
+        )
+        response.raise_for_status()
+
     async def create_content(self, payload: dict) -> dict:
         """POST /grc/api/contents - crea un recurso generico en OpenPages.
 
@@ -301,9 +342,9 @@ class AuronClient:
         `"CHILD"`), Agent -> Use Case (`"966"`, `"PARENT"`) - ninguno confirmado
         estable entre entornos, se pasan como parametro en vez de fijarlos aqui.
 
-        Bloque de construccion generico para `create_agent`/`update_agent`
-        (pendiente, ver TODOs mas abajo); no usado todavia por ningun flujo
-        real.
+        Usado por `WorkerSyncService._ingest_worker` (via `dissociate` +
+        `associate`, en ese orden) para reasignar el caso de uso vinculado
+        a un Agent existente cuando cambia.
         """
         headers = await self._auth_headers()
         response = await self._client.post(
@@ -327,6 +368,13 @@ class AuronClient:
         (`settings.auron_agent_worker_id_field_id`, confirmado = "3658",
         "Santander-Fields-Agent:PlatformAgentID"), y hay que localizarlo por
         ese campo, no por ID directo.
+
+        El dict devuelto debe incluir `"id"` (agent_id) y `"primaryParentId"`
+        (el caso de uso al que esta vinculado hoy) - `WorkerSyncService`
+        compara este ultimo contra el `use_case_id` nuevo para decidir si
+        basta un `update_agent` o hace falta borrar+recrear (ver
+        `create_agent`/`update_agent`, el caso de uso vinculado no se puede
+        cambiar en un `PUT`).
 
         TODO: placeholder. Pendiente el endpoint real de busqueda por campo
         (probablemente el mismo mecanismo de consulta masiva que
@@ -372,9 +420,15 @@ class AuronClient:
         (`worker.agent_name`/`worker.agent_description`, ver
         `models/worker.py`), no se generan aqui - solo el prefijo `[Agent
         Maisa]`/`[Agent Noxus]` de `name` lo añade este metodo, usando
-        `tenant` (mismo mapeo que `_ENGAGEMENT_PREFIX_BY_TENANT`). Sin
-        confirmar: que hacer si `name`/`description` llegan `None` (Maisa/
-        Noxus podria no darlos siempre rellenos).
+        `tenant` (mismo mapeo que `_ENGAGEMENT_PREFIX_BY_TENANT`).
+
+        **Confirmado que hacer si un campo llega `None`/vacio:** `name`,
+        `agent_owner` y `provider_version_id` son obligatorios - si
+        cualquiera de los tres llega vacio, se considera un error (se
+        levanta `ValueError`, que el caller aisla como fallo de ese item,
+        ver `WorkerSyncService`). `description` es opcional - si llega
+        vacio, simplemente no se incluye esa clave en el payload (no se
+        envia `None`/cadena vacia a OpenPages).
 
         Los 5 campos personalizados confirmados por ese mismo ejemplo real:
         - `"3658"` ("Santander-Fields-Agent:PlatformAgentID", worker_id, tag
@@ -400,36 +454,70 @@ class AuronClient:
           despliegue (fijo por entidad/entorno), no se resuelve via AWS SDK
           en tiempo de ejecucion. Por eso no es parametro de este metodo.
 
-        La implementacion final sera basicamente:
-        ```
-        prefix = _ENGAGEMENT_PREFIX_BY_TENANT[tenant]  # "Maisa" | "Noxus"
-        create_content({
+        Confirmado (equipo Auron/IBM): el caso de uso vinculado
+        (`primaryParentId`) NO se puede cambiar en un `update_agent` -
+        cuando cambia, hay que borrar la asociacion existente
+        (`AuronClient.dissociate`) y crear la nueva (`AuronClient.associate`,
+        `associationDefinitionId "966"`, `type "PARENT"`) - **no** hace
+        falta borrar/recrear el Agent entero. Ver
+        `WorkerSyncService._ingest_worker` para el punto de decision.
+        """
+        if not name or not agent_owner or not provider_version_id:
+            raise ValueError(
+                "create_agent: name/agent_owner/provider_version_id son "
+                f"obligatorios (worker_id={worker_id!r}, name={name!r}, "
+                f"agent_owner={agent_owner!r}, "
+                f"provider_version_id={provider_version_id!r})"
+            )
+
+        prefix = _ENGAGEMENT_PREFIX_BY_TENANT[tenant]
+        payload = {
             "name": f"[Agent {prefix}] {name}",
-            "description": description,
             "typeDefinitionId": settings.auron_agent_type_definition_id,
             "primaryParentId": use_case_id,
-            "fields": {"field": [
-                {"id": settings.auron_agent_worker_id_field_id,
-                 "dataType": "STRING_TYPE", "hasChanged": True, "value": worker_id},
-                {"id": "3261", "dataType": "STRING_TYPE", "hasChanged": True, "value": use_case_owner},
-                {"id": "3293", "dataType": "STRING_TYPE", "hasChanged": True, "value": agent_owner},
-                {"id": "3290", "dataType": "STRING_TYPE", "hasChanged": True, "value": provider_version_id},
-                {"id": "3405", "dataType": "STRING_TYPE", "hasChanged": True, "value": settings.aws_account_id},
-            ]},
-        })
-        ```
+            "fields": {
+                "field": [
+                    {
+                        "id": settings.auron_agent_worker_id_field_id,
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": worker_id,
+                    },
+                    {
+                        "id": "3261",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": use_case_owner,
+                    },
+                    {
+                        "id": "3293",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": agent_owner,
+                    },
+                    {
+                        "id": "3290",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": provider_version_id,
+                    },
+                    {
+                        "id": "3405",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": settings.aws_account_id,
+                    },
+                ]
+            },
+        }
+        if description:
+            payload["description"] = description
 
-        TODO: placeholder. Bloqueado solo por lo que queda pendiente en el
-        punto 12 de "Pendiente de acordar" (ARCHITECTURE.md): que hacer si
-        `name`/`description`/`agent_owner`/`provider_version_id` llegan
-        `None`.
-        """
-        raise NotImplementedError
+        return await self.create_content(payload)
 
     async def update_agent(
         self,
         agent_id: str,
-        use_case_id: str,
         tenant: str,
         name: str | None,
         description: str | None,
@@ -437,21 +525,77 @@ class AuronClient:
         agent_owner: str | None,
         provider_version_id: str | None,
     ) -> dict:
-        """Actualiza un Agent existente en OpenPages (enlace a use case y,
-        si cambiaron en origen, name/description/owners).
+        """Actualiza los campos de un Agent existente en OpenPages (name,
+        description, y los 5 campos personalizados - ver `create_agent`).
+
+        **Confirmado (equipo Auron/IBM): NO recibe `use_case_id`, a
+        proposito.** El caso de uso vinculado (`primaryParentId`) no se
+        puede cambiar en un `PUT` - solo los campos ("fields") del propio
+        Agent son actualizables asi. Si el `use_case_id` de un worker
+        cambia respecto al que ya tenia su Agent, el caller
+        (`WorkerSyncService._ingest_worker`) reasigna la asociacion aparte
+        (`AuronClient.dissociate` + `associate`) antes/despues de llamar a
+        este metodo - no hace falta borrar/recrear el Agent.
 
         Sin workspace_id (ver nota en `create_agent`): no es un dato del
-        Agent. Para el enlace a use_case_id: sin confirmar si
-        `primaryParentId` se puede cambiar en un PUT igual que un `field`
-        normal (ningun ejemplo visto es de actualizacion, solo de creacion) -
-        si no se puede, podria hacer falta volver a `associate` para este
-        caso concreto (re-vincular un Agent ya existente a otro use case).
+        Agent.
 
-        `provider_version_id`/`settings.aws_account_id` (fields "3290"/
-        "3405"): resueltos, mismo criterio que `create_agent`.
+        Mismo manejo de `None` que `create_agent` (ver su docstring):
+        `name`/`agent_owner`/`provider_version_id` obligatorios -> levanta
+        `ValueError`; `description` opcional -> se omite del payload.
 
-        TODO: placeholder. Bloqueado por la duda de `primaryParentId` en PUT
-        explicada arriba, mas lo que queda pendiente en el punto 12 de
-        "Pendiente de acordar" (valores `None`).
+        Payload: mismo bloque de campos personalizados que `create_agent`
+        salvo `"3658"` (worker_id) - es la tag de busqueda con la que se
+        localizo este mismo Agent via `get_agent_by_worker_id`, no cambia
+        para un worker existente, asi que no hace falta reenviarla. Tampoco
+        `primaryParentId` (ver nota arriba). Via `AuronClient.update_content`
+        (PUT generico, mismo endpoint que `create_content` usa para el
+        POST). No hay ejemplo real especifico de actualizacion de un
+        Agent, se asume el mismo mecanismo que
+        `create_content`/`update_use_case` por ser la misma familia de
+        endpoint (ver `update_content`).
         """
-        raise NotImplementedError
+        if not name or not agent_owner or not provider_version_id:
+            raise ValueError(
+                "update_agent: name/agent_owner/provider_version_id son "
+                f"obligatorios (agent_id={agent_id!r}, name={name!r}, "
+                f"agent_owner={agent_owner!r}, "
+                f"provider_version_id={provider_version_id!r})"
+            )
+
+        prefix = _ENGAGEMENT_PREFIX_BY_TENANT[tenant]
+        payload = {
+            "name": f"[Agent {prefix}] {name}",
+            "fields": {
+                "field": [
+                    {
+                        "id": "3261",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": use_case_owner,
+                    },
+                    {
+                        "id": "3293",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": agent_owner,
+                    },
+                    {
+                        "id": "3290",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": provider_version_id,
+                    },
+                    {
+                        "id": "3405",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": settings.aws_account_id,
+                    },
+                ]
+            },
+        }
+        if description:
+            payload["description"] = description
+
+        return await self.update_content(agent_id, payload)

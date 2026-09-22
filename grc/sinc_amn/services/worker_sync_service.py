@@ -92,10 +92,14 @@ class WorkerSyncService:
         registra (log + intento de MonitoringStore) y devuelve False.
         """
         # 3A/3B-5A/5B: alta/actualizacion del agente, con la tag worker_id y
-        # el enlace al caso de uso incluidos en el mismo payload (confirmado:
-        # no hay una llamada de asociacion aparte). workspace_id no es un
-        # dato del Agent (vive en el propio caso de uso, solo Noxus - Maisa
-        # no tiene workspace_id asociado), asi que no se le pasa aqui.
+        # el enlace al caso de uso incluidos en el mismo payload de creacion
+        # (confirmado: primaryParentId, sin llamada de asociacion aparte
+        # para el alta). workspace_id no es un dato del Agent (vive en el
+        # propio caso de uso, solo Noxus - Maisa no tiene workspace_id
+        # asociado), asi que no se le pasa aqui.
+        # Si el Agent ya existe pero con otro caso de uso vinculado, no se
+        # puede reasignar via update_agent (confirmado) - hay que borrar la
+        # asociacion vieja y crear la nueva, ver rama mas abajo.
         agent: dict | None = None
         had_use_case = worker.use_case_id is not None
         use_case_id = worker.use_case_id or settings.generic_use_case_id
@@ -117,6 +121,21 @@ class WorkerSyncService:
                 use_case_label = await self._noxus_use_case_labels.get_by_resource_id(
                     use_case_id, organization_id=settings.noxus_organization_id
                 )
+                # Backfill de workspace_id: Flujo 1 (OpenPages) no lo trae,
+                # solo llega aqui via el propio Worker de Noxus. Auxiliar -
+                # un fallo aqui no debe tumbar el aislamiento del item.
+                if use_case_label and use_case_label.workspace_id is None:
+                    try:
+                        await self._noxus_use_case_labels.set_workspace_id_if_missing(
+                            use_case_id,
+                            organization_id=settings.noxus_organization_id,
+                            workspace_id=worker.workspace_id,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "worker_sync: fallo rellenando workspace_id de %s",
+                            use_case_id,
+                        )
             use_case_owner = use_case_label.owner if use_case_label else None
 
             if agent is None:
@@ -131,9 +150,22 @@ class WorkerSyncService:
                     provider_version_id=worker.provider_version_id,
                 )
             else:
+                old_use_case_id = agent.get("primaryParentId")
+                if old_use_case_id and old_use_case_id != use_case_id:
+                    # Confirmado (equipo Auron/IBM): el caso de uso
+                    # vinculado no se puede cambiar en un update_agent
+                    # (PUT) ni sobrescribiendo la asociacion - hay que
+                    # borrar la asociacion vieja y crear la nueva. No hace
+                    # falta borrar/recrear el Agent entero.
+                    await self._auron.dissociate(agent["id"], old_use_case_id)
+                    await self._auron.associate(
+                        agent["id"],
+                        use_case_id,
+                        association_definition_id="966",
+                        association_type="PARENT",
+                    )
                 agent = await self._auron.update_agent(
                     agent_id=agent["id"],
-                    use_case_id=use_case_id,
                     tenant=worker.tenant,
                     name=worker.agent_name,
                     description=worker.agent_description,

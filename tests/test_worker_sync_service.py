@@ -70,7 +70,12 @@ async def test_run_combines_maisa_and_noxus_workers_and_updates_existing_agent()
     noxus = AsyncMock(spec=NoxusClient)
     noxus.get_updated_workers.return_value = []
     auron = AsyncMock(spec=AuronClient)
-    auron.get_agent_by_worker_id.return_value = {"id": "agent-1"}
+    # El caso de uso vinculado (primaryParentId) ya coincide con el del
+    # worker - toma la rama update_agent, no borrar+recrear.
+    auron.get_agent_by_worker_id.return_value = {
+        "id": "agent-1",
+        "primaryParentId": "UC-1",
+    }
     monitoring = AsyncMock(spec=MonitoringStore)
 
     service = _service(auron=auron, maisa=maisa, noxus=noxus, monitoring=monitoring)
@@ -78,7 +83,6 @@ async def test_run_combines_maisa_and_noxus_workers_and_updates_existing_agent()
 
     auron.update_agent.assert_awaited_once_with(
         agent_id="agent-1",
-        use_case_id="UC-1",
         tenant="maisa",
         name="Agente de prueba",
         description="Descripcion de prueba",
@@ -87,8 +91,60 @@ async def test_run_combines_maisa_and_noxus_workers_and_updates_existing_agent()
         provider_version_id=None,
     )
     auron.create_agent.assert_not_awaited()
+    auron.dissociate.assert_not_awaited()
+    auron.associate.assert_not_awaited()
     monitoring.record.assert_awaited_once()
     assert summary == {"total": 1, "succeeded": 1, "failed": 0}
+
+
+async def test_ingest_worker_reassociates_when_use_case_changed():
+    worker = _worker(use_case_id="UC-2")
+    auron = AsyncMock(spec=AuronClient)
+    # El Agent ya existia vinculado a otro caso de uso (UC-1) - no se puede
+    # reasignar via update_agent (confirmado), hay que borrar la asociacion
+    # vieja y crear la nueva (sin borrar/recrear el Agent entero).
+    auron.get_agent_by_worker_id.return_value = {
+        "id": "agent-1",
+        "primaryParentId": "UC-1",
+    }
+    auron.update_agent.return_value = {"id": "agent-1"}
+
+    service = _service(auron=auron)
+    ok = await service._ingest_worker(worker)
+
+    assert ok is True
+    auron.dissociate.assert_awaited_once_with("agent-1", "UC-1")
+    auron.associate.assert_awaited_once_with(
+        "agent-1", "UC-2", association_definition_id="966", association_type="PARENT"
+    )
+    auron.update_agent.assert_awaited_once_with(
+        agent_id="agent-1",
+        tenant="maisa",
+        name="Agente de prueba",
+        description="Descripcion de prueba",
+        use_case_owner=None,
+        agent_owner="agent-owner@example.com",
+        provider_version_id=None,
+    )
+    auron.create_agent.assert_not_awaited()
+
+
+async def test_ingest_worker_isolates_failure_when_reassociation_fails():
+    worker = _worker(use_case_id="UC-2")
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = {
+        "id": "agent-1",
+        "primaryParentId": "UC-1",
+    }
+    auron.dissociate.side_effect = RuntimeError("boom")
+
+    service = _service(auron=auron)
+    ok = await service._ingest_worker(worker)
+
+    assert ok is False
+    auron.associate.assert_not_awaited()
+    auron.update_agent.assert_not_awaited()
+    auron.create_agent.assert_not_awaited()
 
 
 async def test_run_looks_up_use_case_owner_from_intermediate_table():
@@ -169,6 +225,87 @@ async def test_run_looks_up_use_case_owner_from_noxus_intermediate_table():
         agent_owner="agent-owner@example.com",
         provider_version_id=None,
     )
+
+
+async def test_ingest_worker_backfills_workspace_id_when_missing_on_noxus_label():
+    worker = _worker(tenant="noxus", workspace_id="WS-1")
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+    noxus_use_case_labels = AsyncMock(spec=NoxusUseCaseLabelRepository)
+    noxus_use_case_labels.get_by_resource_id.return_value = NoxusUseCaseLabel(
+        id=uuid4(),
+        source_resource_id="UC-1",
+        name="Caso 1",
+        name_lower="caso 1",
+        workspace_id=None,
+        organization_id="org-1",
+        worker_count=0,
+        status="synced",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    service = _service(auron=auron, noxus_use_case_labels=noxus_use_case_labels)
+    await service._ingest_worker(worker)
+
+    noxus_use_case_labels.set_workspace_id_if_missing.assert_awaited_once_with(
+        "UC-1", organization_id=settings.noxus_organization_id, workspace_id="WS-1"
+    )
+
+
+async def test_ingest_worker_skips_workspace_id_backfill_when_already_set():
+    worker = _worker(tenant="noxus", workspace_id="WS-1")
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+    noxus_use_case_labels = AsyncMock(spec=NoxusUseCaseLabelRepository)
+    noxus_use_case_labels.get_by_resource_id.return_value = NoxusUseCaseLabel(
+        id=uuid4(),
+        source_resource_id="UC-1",
+        name="Caso 1",
+        name_lower="caso 1",
+        workspace_id="WS-ALREADY-SET",
+        organization_id="org-1",
+        worker_count=0,
+        status="synced",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    service = _service(auron=auron, noxus_use_case_labels=noxus_use_case_labels)
+    await service._ingest_worker(worker)
+
+    noxus_use_case_labels.set_workspace_id_if_missing.assert_not_awaited()
+
+
+async def test_ingest_worker_isolates_workspace_id_backfill_failure():
+    worker = _worker(tenant="noxus", workspace_id="WS-1")
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+    noxus_use_case_labels = AsyncMock(spec=NoxusUseCaseLabelRepository)
+    noxus_use_case_labels.get_by_resource_id.return_value = NoxusUseCaseLabel(
+        id=uuid4(),
+        source_resource_id="UC-1",
+        name="Caso 1",
+        name_lower="caso 1",
+        workspace_id=None,
+        organization_id="org-1",
+        worker_count=0,
+        status="synced",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    noxus_use_case_labels.set_workspace_id_if_missing.side_effect = RuntimeError(
+        "db blip"
+    )
+
+    service = _service(auron=auron, noxus_use_case_labels=noxus_use_case_labels)
+    ok = await service._ingest_worker(worker)
+
+    assert ok is True
+    auron.create_agent.assert_awaited_once()
 
 
 async def test_ingest_worker_passes_provider_version_id_through_to_create_agent():

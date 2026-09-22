@@ -14,8 +14,6 @@ async def test_maisa_client_placeholders_raise_not_implemented():
     with pytest.raises(NotImplementedError):
         await client.get_updated_workers(date(2026, 7, 27))
     with pytest.raises(NotImplementedError):
-        await client.create_label(label=None)
-    with pytest.raises(NotImplementedError):
         await client.update_label("maisa-1", label=None)
 
     await client._client.aclose()
@@ -39,27 +37,5 @@ async def test_auron_client_agent_placeholders_raise_not_implemented():
 
     with pytest.raises(NotImplementedError):
         await client.get_agent_by_worker_id("W-1")
-    with pytest.raises(NotImplementedError):
-        await client.create_agent(
-            worker_id="W-1",
-            use_case_id="UC-1",
-            tenant="maisa",
-            name="Agente de prueba",
-            description="Descripcion de prueba",
-            use_case_owner="owner@example.com",
-            agent_owner="agent-owner@example.com",
-            provider_version_id="v1",
-        )
-    with pytest.raises(NotImplementedError):
-        await client.update_agent(
-            agent_id="A-1",
-            use_case_id="UC-1",
-            tenant="maisa",
-            name="Agente de prueba",
-            description="Descripcion de prueba",
-            use_case_owner="owner@example.com",
-            agent_owner="agent-owner@example.com",
-            provider_version_id="v1",
-        )
 
     await client._client.aclose()

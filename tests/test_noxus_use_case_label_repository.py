@@ -185,3 +185,20 @@ async def test_mark_synced_executes_update_with_expected_args():
     assert args[0] == "noxus-1"
     assert args[2] == label_id
     assert args[3] == "new"
+
+
+async def test_set_workspace_id_if_missing_executes_conditional_update():
+    conn = FakeConnection()
+    repo = NoxusUseCaseLabelRepository(FakePool(conn))
+
+    await repo.set_workspace_id_if_missing(
+        "RES-1", organization_id="org-1", workspace_id="WS-1"
+    )
+
+    assert len(conn.execute_calls) == 1
+    query, args = conn.execute_calls[0]
+    assert "UPDATE noxus_use_case_labels" in query
+    assert "workspace_id IS NULL" in query
+    assert args[0] == "WS-1"
+    assert args[2] == "org-1"
+    assert args[3] == "RES-1"

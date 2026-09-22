@@ -12,18 +12,24 @@ decisiones pendientes y la estructura del proyecto.
     + get/update de OpenPages, `UseCaseLabelRepository`/
     `NoxusUseCaseLabelRepository` sobre Postgres/RDS).
   - "Funcionalidad \*": tabla intermedia → Maisa/Noxus (`MaisaLabelSyncService`/
-    `NoxusLabelSyncService`), aunque `MaisaClient`/`NoxusClient` (`create_label`/
-    `update_label`) siguen siendo placeholders hasta tener el contrato REST
-    real de cada uno.
+    `NoxusLabelSyncService`). `MaisaClient.create_label` ya implementado
+    (contrato REST confirmado); `MaisaClient.update_label` y
+    `NoxusClient.create_label`/`update_label` siguen siendo placeholders
+    hasta tener su contrato REST real.
 - **Implementado:** Flujo 2 (workers D-1, ambos tenants) —
   `WorkerSyncService`, resuelve el owner del caso de uso vía la tabla
   intermedia correspondiente al tenant del worker, con reintento por
   worker fallido (`WorkerSyncFailureRepository`, guarda una foto del
   `Worker` porque Maisa/Noxus no ofrecen un lookup por ID) y monitorización
   vía `MonitoringStore` (log JSON estructurado, recogido por CloudWatch).
+  `AuronClient.create_agent`/`update_agent`/`dissociate` implementados
+  (confirmado que el caso de uso vinculado a un Agent no se puede
+  reasignar via `PUT` — se borra la asociación y se crea la nueva vía
+  `dissociate`+`associate`, sin recrear el Agent); `get_agent_by_worker_id`
+  sigue en placeholder.
 - **Pendiente:** ver la sección "Pendiente de acordar" en ARCHITECTURE.md
-  (contratos REST reales de Maisa/Noxus, mecanismo de envío de email,
-  etc.).
+  (contratos REST reales de Maisa/Noxus, `get_agent_by_worker_id`,
+  mecanismo de envío de email, etc.).
 
 ## Desarrollo local
 
