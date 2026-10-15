@@ -35,29 +35,15 @@ class Settings(BaseSettings):
     # AuronClient.
     auron_http_timeout_seconds: float = 30.0
 
-    # Maisa - autenticacion en dos pasos, igual que Auron pero via una
-    # pieza interna de Santander (STS), no IBM Cloud IAM directamente:
-    # credenciales STS -> token JWT -> Bearer en las llamadas a Maisa.
-    # Confirmado que reemplaza el diseño anterior (API key estatica fija
-    # como Bearer, ver MaisaClient).
-    maisa_base_url: str
-    # URL del STS - confirmado via ejemplo real, nombre de servicio interno
-    # de Kubernetes (estable dentro del cluster/namespace, no especifico de
-    # entidad/entorno salvo que algun despliegue lo necesite distinto).
-    maisa_sts_url: str = "http://sts:8080/tokens/jwsid/generic"
-    # X-Api-Key, client_id y client_secret del STS - tres valores
-    # independientes por entidad/entorno (confirmado explicitamente que no
-    # colapsan en uno solo, aunque en el ejemplo visto X-Api-Key y
-    # client_id coincidian - se tratan por separado para no asumir que
-    # siempre coinciden). client_secret va en el Authorization: Basic
-    # (base64 de "client_id:client_secret"), client_id tambien va en el
-    # body (claims.client_id).
-    maisa_sts_api_key: str
-    maisa_sts_client_id: str
-    maisa_sts_client_secret: str
-    # Confirmado: get_updated_workers (1A) no es REST, es una consulta
-    # directa a la BBDD de Maisa (AWS DocumentDB, compatible MongoDB).
-    # DSN completo (incluye credenciales y opciones de conexion, p.ej.
+    # Maisa - confirmado explicitamente que el envio de labels hacia Maisa
+    # ("Funcionalidad *") no lo hace este microservicio, lo regulariza a
+    # mano el propio equipo de Maisa - por eso ya no hace falta ninguna
+    # config de autenticacion REST (Studio API/STS, eliminadas). Lo unico
+    # que queda es el acceso de LECTURA a su BBDD para Flujo 2.
+    #
+    # get_updated_workers (1A) es una consulta directa a la BBDD de Maisa
+    # (AWS DocumentDB, compatible MongoDB). DSN completo (incluye
+    # credenciales y opciones de conexion, p.ej.
     # tls=true&tlsCAFile=global-bundle.pem&replicaSet=rs0) tal cual lo da
     # el equipo de Maisa/infra - no se descompone en piezas sueltas, mismo
     # criterio que intermediate_db_dsn. El archivo tlsCAFile referenciado

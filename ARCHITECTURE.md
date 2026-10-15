@@ -109,67 +109,38 @@ lo hace otro componente, **"Funcionalidad \*"**, descrito más abajo.
   `_use_cases_query`). Ver "Ventana de fechas" más abajo para el filtro incremental
   y el punto 2 de "Pasos comunes" para el filtro opcional de país.
 
-### "Funcionalidad \*" — tabla intermedia → Maisa (DocumentDB)
+### "Funcionalidad \*" — tabla intermedia → Maisa: **confirmado fuera de alcance**
 
-**Implementado** (ver diapositivas 5-6 del PPT, "SubTask"). Endpoint:
-`POST /flows/maisa-labels/sync`, mismo cadencia horaria que "Funcionalidad 1".
+**Eliminado explícitamente.** Confirmado por el negocio: el envío de labels
+hacia Maisa **no lo hace este microservicio** — lo regulariza **a mano el
+propio equipo de Maisa**. La tabla intermedia (`maisa_use_case_labels`, 4a
+más arriba) se sigue poblando exactamente igual vía "Funcionalidad 1", solo
+para **dejar constancia** — ningún proceso automático la consume hacia
+Maisa. Por eso se ha eliminado del todo (no solo desconectado):
+`MaisaLabelSyncService`, el endpoint `POST /flows/maisa-labels/sync`, y los
+métodos `MaisaClient.create_label`/`update_label`/`_get_access_token` junto
+con la configuración de autenticación REST (Studio API + STS,
+`maisa_base_url`/`maisa_sts_*`) que tenían — todo recuperable del historial
+de git si se retoma la automatización más adelante. `UseCaseLabelRepository
+.get_pending_for_maisa`/`mark_synced` siguen en el repositorio (sin
+llamador activo hoy) por si se retoma.
 
-- La BBDD real de Maisa es **AWS DocumentDB** (compatible Mongo), colección
-  `labels`, backend en Go (`labels.go`/`label.go` según el PPT), expuesta vía
-  lo que el equipo de Maisa llama su "Studio API" (`settings.maisa_base_url`).
-- **Autenticación: confirmada la forma, bloqueada por la respuesta.**
-  Maisa **no** usa una API key estática fija como Bearer (diseño anterior,
-  corregido) — usa una pieza interna de Santander llamada **STS**: se
-  intercambian credenciales propias por un token JWT
-  (`MaisaClient._get_access_token`), y ese token se usa como Bearer en
-  cada llamada a Maisa, mismo patrón en dos pasos que `AuronClient` con
-  IAM. Confirmado via ejemplo real (equipo Maisa) el request al STS:
-  `POST {maisa_sts_url}` (por defecto `http://sts:8080/tokens/jwsid/generic`,
-  nombre de servicio interno de Kubernetes), headers `X-Api-Key`
-  (`settings.maisa_sts_api_key`) + `Authorization: Basic
-  <base64("{client_id}:{client_secret}")>`, body `{"audience": [""],
-  "claims": {"client_id": settings.maisa_sts_client_id}}` — **confirmado
-  explícitamente que `audience` vacío (`[""]`) es el valor correcto tal
-  cual**, no un placeholder sin rellenar. **Sin confirmar todavía: la
-  forma de la respuesta** (qué campo trae el token, si hay `expires_in` o
-  hay que leer el `exp` del propio JWT) — por eso `_get_access_token`
-  sigue en placeholder (`NotImplementedError`).
-- **`create_label`: confirmado el resto (URL/body/respuesta) vía ejemplo
-  real (script bash del equipo de Maisa)**, pero bloqueado en la práctica
-  por lo anterior — confirmado que `/organizations/{org_id}/labels`
-  es esta misma colección `labels` (no otra funcionalidad distinta de
-  Maisa, aunque el ejemplo en sí solo creaba labels de prueba tipo
-  entorno/departamento, no casos de uso reales). `POST
-  {maisa_base_url}/organizations/{organization_id}/labels` — `organization_id`
-  va en la URL, no en el body; body mínimo `{"name": ...}`, sin confirmar si
-  admite más campos; la respuesta trae `id` (el `maisa_label_id` a
-  persistir). `update_label` **sigue sin confirmar** — el ejemplo solo
-  cubre creación, no actualización (`MaisaClient.update_label` sigue en
-  placeholder, hipótesis sin confirmar: mismo patrón de URL con método
-  `PUT`/`PATCH`).
-- `MaisaLabelSyncService.run()`: pide a `UseCaseLabelRepository.get_pending_for_maisa`
-  los registros con `status IN ('new','modified')`; por cada uno, si no tiene
-  `maisa_label_id` llama a `create_label` (alta), si ya lo tiene llama a
-  `update_label`; luego marca el registro `synced` guardando el
-  `maisa_label_id` devuelto por Maisa (`UseCaseLabelRepository.mark_synced`,
-  con chequeo optimista de `status` para no pisar un `modified` más reciente
-  escrito por "Funcionalidad 1" mientras se procesaba el push).
-- **Confirmado explícitamente fuera de alcance por ahora:** escribir de vuelta
-  el `maisa_label_id` en OpenPages (aunque el propio PPT lo sugiere — "para que
-  pueda ser enviado a open page" — se decidió posponerlo; `AuronClient.update_use_case`
-  ya está listo para cuando se retome).
-- Restricciones conocidas del lado Maisa (key design points del PPT, no
-  aplicadas por nuestro cliente sino que las valida Maisa): `nameLower` existe
-  porque DocumentDB no soporta collation de Mongo (toda igualdad/unicidad/orden
-  corre sobre `nameLower`, `name` es solo para mostrar); índice único
-  `(organizationId, nameLower)`; `workerCount` es un contador denormalizado que
-  Maisa mantiene con `$inc`, no se calcula desde los workers; borrado físico
-  (hard delete) pese a que el esquema tenga bloque de auditoría con
-  `deletedAt`/`isDeleted`; el vínculo worker↔label vive en el lado de Maisa
-  (`worker_manager.labelIds`); `name` debe tener 3–50 caracteres, trimmed.
-- Camino alternativo mencionado en el PPT si Maisa no expone API: descarga
-  diaria + carga separada por entidad/entorno (no implementado, solo
-  documentado — ver "Pendiente de acordar").
+Contexto histórico que queda sin aplicar hoy, pero documentado por si se
+retoma: la BBDD real de labels de Maisa es AWS DocumentDB (compatible
+Mongo), colección `labels`, expuesta via lo que el equipo de Maisa llama su
+"Studio API" — **sin confirmar si es el mismo cluster** que
+`settings.maisa_documentdb_dsn` (ver "Funcionalidad 1 - lectura de
+workers" más abajo, nombre de cluster visto `maisa-metrics-docdb`, sugiere
+que podría ser una instancia distinta/separada). Restricciones conocidas
+del lado Maisa para esa colección (key design points del PPT): `nameLower`
+existe porque DocumentDB no soporta collation de Mongo; índice único
+`(organizationId, nameLower)`; `workerCount` es un contador denormalizado
+que Maisa mantiene con `$inc`; borrado físico (hard delete) pese al bloque
+de auditoría `deletedAt`/`isDeleted`; el vínculo worker↔label vive en el
+lado de Maisa (`worker_manager.labelIds`); `name` debe tener 3–50
+caracteres, trimmed. El write-back del `maisa_label_id` hacia OpenPages
+(mencionado en el PPT) queda sin sentido mientras no haya ningún
+`maisa_label_id` que generar.
 
 ### 4b. Destino Noxus — "Funcionalidad 1 - Noxus": tabla intermedia (corrige diseño anterior)
 
@@ -215,17 +186,18 @@ con dos diferencias puntuales:
 
 ### "Funcionalidad \* - Noxus" — tabla intermedia → Noxus
 
-**Mismo diseño que "Funcionalidad \*" (Maisa), aplicado a Noxus.** Endpoint:
-`POST /flows/noxus-labels/sync`.
+**Confirmado que sigue siendo responsabilidad de este microservicio** (a
+diferencia de Maisa, ver "Descartado / fuera de alcance" en "Pendiente de
+acordar" — Noxus no tiene el equivalente de "se regulariza a mano").
+Endpoint: `POST /flows/noxus-labels/sync`.
 
-- Contrato REST de Noxus **aún no confirmado** (mismo estado que Maisa antes
-  de tener ejemplos reales) — `NoxusClient.create_label`/`update_label` son
-  placeholders con `NotImplementedError` (reemplazan al antiguo
-  `push_use_case`, ya eliminado).
-- `NoxusLabelSyncService.run()`: mismo algoritmo que `MaisaLabelSyncService`
-  — pide a `NoxusUseCaseLabelRepository.get_pending_for_noxus` los registros
-  `new`/`modified`, crea o actualiza en Noxus según tenga o no
-  `noxus_label_id`, y marca `synced` guardando el id devuelto
+- Contrato REST de Noxus **aún no confirmado** — `NoxusClient.create_label`/
+  `update_label` son placeholders con `NotImplementedError` (reemplazan al
+  antiguo `push_use_case`, ya eliminado).
+- `NoxusLabelSyncService.run()`: pide a `NoxusUseCaseLabelRepository
+  .get_pending_for_noxus` los registros `new`/`modified`, crea o actualiza
+  en Noxus según tenga o no `noxus_label_id`, y marca `synced` guardando el
+  id devuelto
   (`mark_synced`, mismo chequeo optimista de `status` que Maisa).
 - Restricciones del lado Noxus (equivalentes a las "key design points" que
   el PPT documenta para Maisa) **no confirmadas** — no tenemos aún el
@@ -248,14 +220,13 @@ con dos diferencias puntuales:
   failed}`; el endpoint (`POST /flows/use-cases/sync`) responde `202` si
   `failed == 0`, o `207 Multi-Status` si hubo algún fallo aislado, para que
   el CronJob/alerting lo distinga de un run limpio sin tener que parsear el
-  body. Mismo criterio aplicado también a "Funcionalidad \*"
-  (`MaisaLabelSyncService`/`NoxusLabelSyncService`) y al Flujo 2
-  (`WorkerSyncService`, ver abajo).
+  body. Mismo criterio aplicado también a "Funcionalidad \* - Noxus"
+  (`NoxusLabelSyncService`) y al Flujo 2 (`WorkerSyncService`, ver abajo).
 - **Tracking de fallos: confirmado e implementado, tanto en Flujo 1 como en
-  Flujo 2.** "Funcionalidad \*"/"Funcionalidad \* - Noxus" ya son robustas
-  por diseño (reintentan indefinidamente vía `status IN ('new',
-  'modified')`, sin ventana de tiempo de por medio) — no necesitan este
-  mecanismo. El hueco real (Flujo 1 y Flujo 2 por igual): la ventana `D-1`
+  Flujo 2.** "Funcionalidad \* - Noxus" ya es robusta por diseño (reintenta
+  indefinidamente vía `status IN ('new', 'modified')`, sin ventana de
+  tiempo de por medio) — no necesita este mecanismo. El hueco real (Flujo 1
+  y Flujo 2 por igual): la ventana `D-1`
   se desplaza cada día, así que un item que falla y no se arregla antes de
   medianoche podía dejar de aparecer en el filtro para siempre, sin más
   reintento posible.
@@ -316,19 +287,18 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
 **Pasos:**
 
 1. Obtención de datos actualizados en D-1:
-   - `1A` `MaisaClient.get_updated_workers(day)` — **corregido: no es una
-     llamada REST**, sino una consulta directa a la **BBDD de Maisa**
-     (AWS DocumentDB, compatible MongoDB — la misma instancia mencionada en
-     "Funcionalidad \*", ver más arriba) para traer los workers y su caso
-     de uso asociado. Distinto mecanismo de acceso que `create_label`/
-     `_get_access_token` (esos sí son REST vía la Studio API + STS) — aquí
-     se lee directamente de la base de datos, sin pasar por ninguna API.
-     Sin confirmar todavía: cadena de conexión/credenciales, colección(es)
-     involucradas y su esquema (qué campo identifica "actualizado en
-     D-1", cómo se relaciona el worker con su label/caso de uso — ver
-     `worker_manager.labelIds` mencionado en "Funcionalidad \*"), y
-     driver MongoDB a añadir como dependencia nueva (hoy el proyecto solo
-     tiene `asyncpg`). Ver punto 6 de "Pendiente de acordar".
+   - `1A` `MaisaClient.get_updated_workers(day)` — **confirmado: no es una
+     llamada REST**, sino una consulta directa a la **BBDD de Maisa** (AWS
+     DocumentDB, compatible MongoDB) para traer los workers y su caso de
+     uso asociado — sin confirmar si es el mismo cluster que el de la
+     colección `labels` mencionada en "Funcionalidad \*" más arriba (ahora
+     fuera de alcance de este microservicio, ver "Descartado / fuera de
+     alcance" en "Pendiente de acordar"). Conexión confirmada
+     (`settings.maisa_documentdb_dsn`, driver `motor` ya añadido al
+     `Pipfile`). Sin confirmar todavía: nombre de la base de datos dentro
+     del cluster, colección(es) involucradas y su esquema (qué campo
+     identifica "actualizado en D-1", cómo se relaciona el worker con su
+     caso de uso). Ver punto 2 de "Pendiente de acordar".
    - `1B` `NoxusClient.get_updated_workers(day)` — GET REST API a Noxus: workspaces
      y metadata de agents (mismo modelo `Worker`, ver nota arriba).
 2. `2AB` El microservicio procesa la información combinada de ambos orígenes.
@@ -398,7 +368,7 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      **genérico "Pendiente de regularizar"** (ver más abajo — **el diseño
      "por `(tenant, consumerId)`" que se había dado por confirmado se ha
      revertido a indefinido**, sigue pendiente decidir a nivel funcional
-     cómo se hace, ver punto 8 de "Pendiente de acordar") **y además** se
+     cómo se hace, ver punto 4 de "Pendiente de acordar") **y además** se
      dispara una notificación (`7A`, confirmado que se implementa además
      del fallback genérico, no en su lugar) a los admins del workspace
      correspondiente para que lo regularicen.
@@ -415,7 +385,7 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      pero con un disparador distinto (no "`use_case_id` ausente", sino
      "`use_case_id` resuelve a un Personal Productivity inexistente
      todavía"). **Confirmado explícitamente sin implementar** — faltan
-     los mismos datos que en el punto 8 de "Pendiente de acordar" (de
+     los mismos datos que en el punto 4 de "Pendiente de acordar" (de
      dónde sale el `user_id` y el resto de campos del payload de
      creación).
    - **Confirmado — payload real completo de `create_agent`** (colección
@@ -465,7 +435,7 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      - Reemplazaría `settings.generic_use_case_id` (hoy un único string
        fijo) por esta resolución dinámica. **Sin implementar todavía** —
        bloqueado tanto por la duda de diseño como por los datos concretos
-       que faltan (ver punto 8 de "Pendiente de acordar").
+       que faltan (ver punto 4 de "Pendiente de acordar").
 4. `6AB` **Confirmado e implementado.** El resultado de la ingesta (Use
    Case/Agent) se registra vía `MonitoringStore.record`, que loguea un
    JSON estructurado (`{"event": "worker_sync_result", "worker_id",
@@ -496,11 +466,12 @@ Auron/Maisa/Noxus y su propio `generic_use_case_id`.
 Los manifiestos de Kubernetes/EKS **no se generan en este repositorio**: el
 despliegue real lo gestiona el pipeline de CI/CD de Santander sobre sus instancias
 de EKS. Lo relevante para ese pipeline es que necesitará, por entidad: variables de
-entorno con prefijo `SINC_AMN_` (ver `config.py`), y cuatro triggers periódicos
-contra la app — tres horarios (`POST /flows/use-cases/sync`,
-`POST /flows/maisa-labels/sync` y `POST /flows/noxus-labels/sync`, estos dos
-últimos siempre después del primero para minimizar el retraso hasta que el
-caso de uso aparece en Maisa/Noxus) y uno diario a `POST /flows/workers/sync`.
+entorno con prefijo `SINC_AMN_` (ver `config.py`), y tres triggers periódicos
+contra la app — dos horarios (`POST /flows/use-cases/sync` y
+`POST /flows/noxus-labels/sync`, este segundo siempre después del primero
+para minimizar el retraso hasta que el caso de uso aparece en Noxus — no
+hay equivalente para Maisa, ver "Descartado / fuera de alcance" en
+"Pendiente de acordar") y uno diario a `POST /flows/workers/sync`.
 
 ---
 
@@ -515,12 +486,11 @@ sinc_amn/
 │   ├── config.py                      # Settings (pydantic BaseSettings)
 │   ├── api/routes/
 │   │   ├── use_cases.py               # POST /flows/use-cases/sync (Flujo 1, Funcionalidad 1)
-│   │   ├── maisa_labels.py            # POST /flows/maisa-labels/sync (Funcionalidad *)
 │   │   ├── noxus_labels.py            # POST /flows/noxus-labels/sync (Funcionalidad * - Noxus)
 │   │   └── workers.py                 # POST /flows/workers/sync  (Flujo 2)
 │   ├── clients/
 │   │   ├── auron_client.py            # AuronClient (OpenPages, GET/PUT real implementado)
-│   │   ├── maisa_client.py            # MaisaClient (workers + create/update_label placeholder)
+│   │   ├── maisa_client.py            # MaisaClient (get_updated_workers via DocumentDB/MongoDB, placeholder)
 │   │   └── noxus_client.py            # NoxusClient (workers + create/update_label placeholder)
 │   ├── repositories/
 │   │   ├── use_case_label_repository.py  # tabla intermedia OpenPages<->Maisa (Postgres)
@@ -531,7 +501,6 @@ sinc_amn/
 │   │   └── pool.py                    # pool asyncpg (lifecycle en main.py)
 │   ├── services/
 │   │   ├── use_case_sync_service.py   # orquesta Flujo 1 (dispatch por tenant)
-│   │   ├── maisa_label_sync_service.py  # orquesta Funcionalidad * (tabla intermedia -> Maisa)
 │   │   ├── noxus_label_sync_service.py  # orquesta Funcionalidad * - Noxus (tabla intermedia -> Noxus)
 │   │   └── worker_sync_service.py     # orquesta Flujo 2
 │   ├── models/
@@ -572,48 +541,33 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
    límites de `name`, cómo mantiene Noxus su propio `workerCount`, etc.) y
    si Noxus tiene un concepto de "organizationId" equivalente al de Maisa
    (`settings.noxus_organization_id`, hoy sin valor).
-2. **`MaisaClient._get_access_token` (forma de la respuesta del STS)**:
-   único bloqueante real que le queda a `create_label` — la petición al
-   STS ya está confirmada del todo (URL, headers, body, incluido
-   `audience: [""]` tal cual), pero no sabemos qué campo trae el token en
-   la respuesta, ni si hay `expires_in` o hay que leer el `exp` del propio
-   JWT para cachear/renovar (mismo patrón que `AuronClient
-   ._get_access_token`, pendiente de un ejemplo real de respuesta).
-3. **`MaisaClient.update_label`**: bloqueante aparte, independiente del
-   anterior — el ejemplo real visto solo cubre creación, sin confirmar
-   método HTTP/URL de actualización (hipótesis sin confirmar: mismo patrón
-   de URL con `PUT`/`PATCH`). Tampoco confirmado si el body de creación
-   admite más campos aparte de `name` (el ejemplo solo creaba labels de
-   prueba tipo entorno/departamento, no casos de uso reales).
-4. **Camino alternativo sin API de Maisa** (descarga diaria + carga
-   separada por entidad/entorno, mencionado en el PPT como fallback) — sin
-   decidir si hace falta, no implementado.
-5. **Write-back del `maisa_label_id` hacia OpenPages** — pospuesto
-   explícitamente, sin fecha para retomarlo (`AuronClient.update_use_case`
-   ya está listo para cuando se necesite).
-6. **`get_updated_workers` (Maisa y Noxus)** — es el primer paso de Flujo 2
+2. **`get_updated_workers` (Maisa y Noxus)** — es el primer paso de Flujo 2
    (`1A`/`1B`); junto con el punto siguiente, bloquea Flujo 2 de punta a
    punta (la parte de escritura en Auron ya está lista y testeada,
    esperando estos dos datos).
-   - **Maisa: confirmado el mecanismo, sin confirmar el detalle.** No es
-     una llamada REST — es una consulta directa a la BBDD de Maisa (AWS
-     DocumentDB/MongoDB). Falta: cadena de conexión/credenciales,
-     colección(es) involucradas y su esquema, campo de filtro para
-     "actualizado en D-1", y añadir un driver MongoDB como dependencia
-     nueva (hoy el proyecto solo tiene `asyncpg` para Postgres).
+   - **Maisa: confirmado el mecanismo (consulta directa a su BBDD,
+     AWS DocumentDB/MongoDB) y la conexión (DSN real ya en
+     `settings.maisa_documentdb_dsn`, driver `motor` ya añadido).** Falta
+     explorar: nombre de la base de datos dentro del cluster (el DSN no lo
+     incluye), colección(es) de workers/agents y su esquema, campo de
+     filtro para "actualizado en D-1", y cómo se relaciona cada worker con
+     su caso de uso. Sin confirmar si es el mismo cluster DocumentDB que
+     el de la colección `labels` mencionada en el PPT (el nombre de
+     cluster visto, `maisa-metrics-docdb`, sugiere que podría ser una
+     instancia distinta/separada).
    - **Noxus: sin confirmar nada todavía** — ni mecanismo (REST o
      también acceso directo a BBDD, a confirmar), ni URL/esquema si
      resulta ser REST.
-7. **`get_agent_by_worker_id`**: pendiente el endpoint real de búsqueda de
+3. **`get_agent_by_worker_id`**: pendiente el endpoint real de búsqueda de
    un Agent por su campo personalizado `worker_id` (probablemente el mismo
    mecanismo de consulta masiva que `get_use_cases`, filtrando por field id
    `"3658"`) — ningún ejemplo real visto hasta ahora es de búsqueda, solo
    de creación.
-8. **Diseño funcional del caso de uso genérico "Pendiente de
+4. **Diseño funcional del caso de uso genérico "Pendiente de
    regularizar"**: sin confirmar si necesita granularidad por
    consumidor/usuario (un registro por `(tenant, consumerId)`) o basta uno
    por `(tenant, entidad)` — la hipótesis anterior de que era por
-   consumidor partía de confundirlo con "Personal Productivity" (punto 9),
+   consumidor partía de confundirlo con "Personal Productivity" (punto 5),
    se ha revertido (ver paso 3 del Flujo 2 más arriba). Lo que sí sigue
    siendo válido con independencia de esa duda (confirmado por ejemplos
    reales): el mecanismo de tres pasos (consultar por nombre → crear si no
@@ -626,18 +580,37 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
    Purpose, AI Type, Primary users) — el ejemplo usa valores fijos
    (`Country: ESP`, `Purpose: Other`, `Primary users: Other`) sin confirmar
    si son literales para todo caso o deberían variar.
-9. **Caso de uso "Personal Productivity"** (`"personal productivity -
+5. **Caso de uso "Personal Productivity"** (`"personal productivity -
    <user_id>"` en Auron, ver paso 3 del Flujo 2 más arriba) — confirmado el
    concepto (el propio usuario lo elige desde Maisa para sus workers, así
    que `worker.use_case_id` ya viene informado apuntando a él; el
    microservicio solo entra en juego si ese caso personal **todavía no
    existe en OpenPages**), pero la creación-si-no-existe se deja
    **explícitamente sin implementar**: faltan los mismos datos que en el
-   punto 8 (de dónde sale el `user_id` y el resto del payload) y no hay
+   punto 4 (de dónde sale el `user_id` y el resto del payload) y no hay
    ningún ejemplo real todavía de este caso concreto.
 
 > Nota: el mecanismo de envío de email (`7A`) se ha quitado de esta lista
 > por ahora (pendiente de retomar más adelante, no descartado).
+
+### Descartado / fuera de alcance (confirmado, no son bloqueantes)
+
+- **Envío de labels hacia Maisa ("Funcionalidad \*")**: confirmado que lo
+  regulariza a mano el propio equipo de Maisa, no este microservicio.
+  `MaisaLabelSyncService`, el endpoint `POST /flows/maisa-labels/sync` y
+  `MaisaClient.create_label`/`update_label`/`_get_access_token` (y su
+  config de autenticación REST vía STS) se han **eliminado del código**
+  (recuperables del historial de git). Esto deja sin sentido, de paso, dos
+  puntos que antes estaban en esta lista: la forma de la respuesta del STS
+  y el método HTTP de `update_label` — ya no hace falta confirmarlos.
+- **Camino alternativo sin API de Maisa** (descarga diaria + carga
+  separada, mencionado en el PPT como fallback si Maisa no exponía API) —
+  resuelto por lo anterior: no hace falta, la respuesta real fue "se
+  regulariza a mano", no un mecanismo de descarga/carga.
+- **Write-back del `maisa_label_id` hacia OpenPages** — sin sentido
+  mientras no haya ningún `maisa_label_id` que generar (nadie llama ya a
+  `create_label`). `AuronClient.update_use_case` sigue listo por si en el
+  futuro hace falta escribir otra cosa de vuelta en OpenPages.
 
 ### Ya resueltos e implementados (referencia rápida)
 
@@ -660,15 +633,6 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
 - **Tabla intermedia de Noxus** (`noxus_use_case_labels`): mismo diseño
   que Maisa, con `workspace_id` (backfill desde Flujo 2,
   `set_workspace_id_if_missing`) y `noxus_label_id` como diferencias.
-- **`MaisaClient.create_label` (parcial — ver punto 2 de bloqueantes
-  abiertos)**: `POST /organizations/{organization_id}/labels`,
-  `organization_id` en la URL, body `{"name": ...}`, respuesta con `id`
-  (`maisa_label_id`) — confirmado y testeado con el token del STS
-  mockeado; bloqueado en la práctica hasta confirmar la respuesta real del
-  STS (`MaisaClient._get_access_token`). Ver "Funcionalidad \*" más arriba
-  para el detalle completo del ejemplo real, incluida la autenticación vía
-  STS (confirmado que reemplaza una API key estática — diseño anterior,
-  corregido).
 - **`update_agent` completo**: confirmado que el caso de uso vinculado
   (`primaryParentId`) NO se puede cambiar en un `PUT` — solo actualiza los
   campos ("fields") del Agent, sin `use_case_id` como parámetro. Vía
