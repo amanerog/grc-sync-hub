@@ -117,18 +117,36 @@ lo hace otro componente, **"Funcionalidad \*"**, descrito más abajo.
 - La BBDD real de Maisa es **AWS DocumentDB** (compatible Mongo), colección
   `labels`, backend en Go (`labels.go`/`label.go` según el PPT), expuesta vía
   lo que el equipo de Maisa llama su "Studio API" (`settings.maisa_base_url`).
-- **`create_label`: confirmado e implementado**, vía ejemplo real (script
-  bash del equipo de Maisa) — confirmado que `/organizations/{org_id}/labels`
+- **Autenticación: confirmada la forma, bloqueada por la respuesta.**
+  Maisa **no** usa una API key estática fija como Bearer (diseño anterior,
+  corregido) — usa una pieza interna de Santander llamada **STS**: se
+  intercambian credenciales propias por un token JWT
+  (`MaisaClient._get_access_token`), y ese token se usa como Bearer en
+  cada llamada a Maisa, mismo patrón en dos pasos que `AuronClient` con
+  IAM. Confirmado via ejemplo real (equipo Maisa) el request al STS:
+  `POST {maisa_sts_url}` (por defecto `http://sts:8080/tokens/jwsid/generic`,
+  nombre de servicio interno de Kubernetes), headers `X-Api-Key`
+  (`settings.maisa_sts_api_key`) + `Authorization: Basic
+  <base64("{client_id}:{client_secret}")>`, body `{"audience": [""],
+  "claims": {"client_id": settings.maisa_sts_client_id}}` — **confirmado
+  explícitamente que `audience` vacío (`[""]`) es el valor correcto tal
+  cual**, no un placeholder sin rellenar. **Sin confirmar todavía: la
+  forma de la respuesta** (qué campo trae el token, si hay `expires_in` o
+  hay que leer el `exp` del propio JWT) — por eso `_get_access_token`
+  sigue en placeholder (`NotImplementedError`).
+- **`create_label`: confirmado el resto (URL/body/respuesta) vía ejemplo
+  real (script bash del equipo de Maisa)**, pero bloqueado en la práctica
+  por lo anterior — confirmado que `/organizations/{org_id}/labels`
   es esta misma colección `labels` (no otra funcionalidad distinta de
   Maisa, aunque el ejemplo en sí solo creaba labels de prueba tipo
   entorno/departamento, no casos de uso reales). `POST
   {maisa_base_url}/organizations/{organization_id}/labels` — `organization_id`
-  va en la URL, no en el body; auth `Bearer` (coincide con lo que el
-  cliente ya hacía); body mínimo `{"name": ...}`, sin confirmar si admite
-  más campos; la respuesta trae `id` (el `maisa_label_id` a persistir).
-  `update_label` **sigue sin confirmar** — el ejemplo solo cubre creación,
-  no actualización (`MaisaClient.update_label` sigue en placeholder,
-  hipótesis sin confirmar: mismo patrón de URL con método `PUT`/`PATCH`).
+  va en la URL, no en el body; body mínimo `{"name": ...}`, sin confirmar si
+  admite más campos; la respuesta trae `id` (el `maisa_label_id` a
+  persistir). `update_label` **sigue sin confirmar** — el ejemplo solo
+  cubre creación, no actualización (`MaisaClient.update_label` sigue en
+  placeholder, hipótesis sin confirmar: mismo patrón de URL con método
+  `PUT`/`PATCH`).
 - `MaisaLabelSyncService.run()`: pide a `UseCaseLabelRepository.get_pending_for_maisa`
   los registros con `status IN ('new','modified')`; por cada uno, si no tiene
   `maisa_label_id` llama a `create_label` (alta), si ya lo tiene llama a
@@ -298,8 +316,19 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
 **Pasos:**
 
 1. Obtención de datos actualizados en D-1:
-   - `1A` `MaisaClient.get_updated_workers(day)` — GET REST API a Maisa: workers y
-     metadata.
+   - `1A` `MaisaClient.get_updated_workers(day)` — **corregido: no es una
+     llamada REST**, sino una consulta directa a la **BBDD de Maisa**
+     (AWS DocumentDB, compatible MongoDB — la misma instancia mencionada en
+     "Funcionalidad \*", ver más arriba) para traer los workers y su caso
+     de uso asociado. Distinto mecanismo de acceso que `create_label`/
+     `_get_access_token` (esos sí son REST vía la Studio API + STS) — aquí
+     se lee directamente de la base de datos, sin pasar por ninguna API.
+     Sin confirmar todavía: cadena de conexión/credenciales, colección(es)
+     involucradas y su esquema (qué campo identifica "actualizado en
+     D-1", cómo se relaciona el worker con su label/caso de uso — ver
+     `worker_manager.labelIds` mencionado en "Funcionalidad \*"), y
+     driver MongoDB a añadir como dependencia nueva (hoy el proyecto solo
+     tiene `asyncpg`). Ver punto 6 de "Pendiente de acordar".
    - `1B` `NoxusClient.get_updated_workers(day)` — GET REST API a Noxus: workspaces
      y metadata de agents (mismo modelo `Worker`, ver nota arriba).
 2. `2AB` El microservicio procesa la información combinada de ambos orígenes.
@@ -369,7 +398,7 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      **genérico "Pendiente de regularizar"** (ver más abajo — **el diseño
      "por `(tenant, consumerId)`" que se había dado por confirmado se ha
      revertido a indefinido**, sigue pendiente decidir a nivel funcional
-     cómo se hace, ver punto 7 de "Pendiente de acordar") **y además** se
+     cómo se hace, ver punto 8 de "Pendiente de acordar") **y además** se
      dispara una notificación (`7A`, confirmado que se implementa además
      del fallback genérico, no en su lugar) a los admins del workspace
      correspondiente para que lo regularicen.
@@ -386,7 +415,7 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      pero con un disparador distinto (no "`use_case_id` ausente", sino
      "`use_case_id` resuelve a un Personal Productivity inexistente
      todavía"). **Confirmado explícitamente sin implementar** — faltan
-     los mismos datos que en el punto 7 de "Pendiente de acordar" (de
+     los mismos datos que en el punto 8 de "Pendiente de acordar" (de
      dónde sale el `user_id` y el resto de campos del payload de
      creación).
    - **Confirmado — payload real completo de `create_agent`** (colección
@@ -436,7 +465,7 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      - Reemplazaría `settings.generic_use_case_id` (hoy un único string
        fijo) por esta resolución dinámica. **Sin implementar todavía** —
        bloqueado tanto por la duda de diseño como por los datos concretos
-       que faltan (ver punto 7 de "Pendiente de acordar").
+       que faltan (ver punto 8 de "Pendiente de acordar").
 4. `6AB` **Confirmado e implementado.** El resultado de la ingesta (Use
    Case/Agent) se registra vía `MonitoringStore.record`, que loguea un
    JSON estructurado (`{"event": "worker_sync_result", "worker_id",
@@ -543,31 +572,48 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
    límites de `name`, cómo mantiene Noxus su propio `workerCount`, etc.) y
    si Noxus tiene un concepto de "organizationId" equivalente al de Maisa
    (`settings.noxus_organization_id`, hoy sin valor).
-2. **`MaisaClient.update_label`**: `create_label` ya está confirmado e
-   implementado (ver "Ya resueltos e implementados" más abajo); falta solo
-   la actualización — el ejemplo real visto solo cubre creación, sin
-   confirmar método HTTP/URL de actualización (hipótesis sin confirmar:
-   mismo patrón de URL con `PUT`/`PATCH`). Tampoco confirmado si el body
-   de creación admite más campos aparte de `name` (el ejemplo solo creaba
-   labels de prueba tipo entorno/departamento, no casos de uso reales).
-3. **Mecanismo de envío de email (7A)**: ¿SES, SMTP corporativo, servicio
-   interno?
+2. **`MaisaClient._get_access_token` (forma de la respuesta del STS)**:
+   único bloqueante real que le queda a `create_label` — la petición al
+   STS ya está confirmada del todo (URL, headers, body, incluido
+   `audience: [""]` tal cual), pero no sabemos qué campo trae el token en
+   la respuesta, ni si hay `expires_in` o hay que leer el `exp` del propio
+   JWT para cachear/renovar (mismo patrón que `AuronClient
+   ._get_access_token`, pendiente de un ejemplo real de respuesta).
+3. **`MaisaClient.update_label`**: bloqueante aparte, independiente del
+   anterior — el ejemplo real visto solo cubre creación, sin confirmar
+   método HTTP/URL de actualización (hipótesis sin confirmar: mismo patrón
+   de URL con `PUT`/`PATCH`). Tampoco confirmado si el body de creación
+   admite más campos aparte de `name` (el ejemplo solo creaba labels de
+   prueba tipo entorno/departamento, no casos de uso reales).
 4. **Camino alternativo sin API de Maisa** (descarga diaria + carga
    separada por entidad/entorno, mencionado en el PPT como fallback) — sin
    decidir si hace falta, no implementado.
 5. **Write-back del `maisa_label_id` hacia OpenPages** — pospuesto
    explícitamente, sin fecha para retomarlo (`AuronClient.update_use_case`
    ya está listo para cuando se necesite).
-6. **`get_agent_by_worker_id`**: pendiente el endpoint real de búsqueda de
+6. **`get_updated_workers` (Maisa y Noxus)** — es el primer paso de Flujo 2
+   (`1A`/`1B`); junto con el punto siguiente, bloquea Flujo 2 de punta a
+   punta (la parte de escritura en Auron ya está lista y testeada,
+   esperando estos dos datos).
+   - **Maisa: confirmado el mecanismo, sin confirmar el detalle.** No es
+     una llamada REST — es una consulta directa a la BBDD de Maisa (AWS
+     DocumentDB/MongoDB). Falta: cadena de conexión/credenciales,
+     colección(es) involucradas y su esquema, campo de filtro para
+     "actualizado en D-1", y añadir un driver MongoDB como dependencia
+     nueva (hoy el proyecto solo tiene `asyncpg` para Postgres).
+   - **Noxus: sin confirmar nada todavía** — ni mecanismo (REST o
+     también acceso directo a BBDD, a confirmar), ni URL/esquema si
+     resulta ser REST.
+7. **`get_agent_by_worker_id`**: pendiente el endpoint real de búsqueda de
    un Agent por su campo personalizado `worker_id` (probablemente el mismo
    mecanismo de consulta masiva que `get_use_cases`, filtrando por field id
    `"3658"`) — ningún ejemplo real visto hasta ahora es de búsqueda, solo
    de creación.
-7. **Diseño funcional del caso de uso genérico "Pendiente de
+8. **Diseño funcional del caso de uso genérico "Pendiente de
    regularizar"**: sin confirmar si necesita granularidad por
    consumidor/usuario (un registro por `(tenant, consumerId)`) o basta uno
    por `(tenant, entidad)` — la hipótesis anterior de que era por
-   consumidor partía de confundirlo con "Personal Productivity" (punto 8),
+   consumidor partía de confundirlo con "Personal Productivity" (punto 9),
    se ha revertido (ver paso 3 del Flujo 2 más arriba). Lo que sí sigue
    siendo válido con independencia de esa duda (confirmado por ejemplos
    reales): el mecanismo de tres pasos (consultar por nombre → crear si no
@@ -580,15 +626,18 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
    Purpose, AI Type, Primary users) — el ejemplo usa valores fijos
    (`Country: ESP`, `Purpose: Other`, `Primary users: Other`) sin confirmar
    si son literales para todo caso o deberían variar.
-8. **Caso de uso "Personal Productivity"** (`"personal productivity -
+9. **Caso de uso "Personal Productivity"** (`"personal productivity -
    <user_id>"` en Auron, ver paso 3 del Flujo 2 más arriba) — confirmado el
    concepto (el propio usuario lo elige desde Maisa para sus workers, así
    que `worker.use_case_id` ya viene informado apuntando a él; el
    microservicio solo entra en juego si ese caso personal **todavía no
    existe en OpenPages**), pero la creación-si-no-existe se deja
    **explícitamente sin implementar**: faltan los mismos datos que en el
-   punto 7 (de dónde sale el `user_id` y el resto del payload) y no hay
+   punto 8 (de dónde sale el `user_id` y el resto del payload) y no hay
    ningún ejemplo real todavía de este caso concreto.
+
+> Nota: el mecanismo de envío de email (`7A`) se ha quitado de esta lista
+> por ahora (pendiente de retomar más adelante, no descartado).
 
 ### Ya resueltos e implementados (referencia rápida)
 
@@ -611,10 +660,15 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
 - **Tabla intermedia de Noxus** (`noxus_use_case_labels`): mismo diseño
   que Maisa, con `workspace_id` (backfill desde Flujo 2,
   `set_workspace_id_if_missing`) y `noxus_label_id` como diferencias.
-- **`MaisaClient.create_label`**: `POST /organizations/{organization_id}/
-  labels`, `organization_id` en la URL, auth `Bearer`, body `{"name":
-  ...}`, respuesta con `id` (`maisa_label_id`) — ver "Funcionalidad \*"
-  más arriba para el detalle completo del ejemplo real.
+- **`MaisaClient.create_label` (parcial — ver punto 2 de bloqueantes
+  abiertos)**: `POST /organizations/{organization_id}/labels`,
+  `organization_id` en la URL, body `{"name": ...}`, respuesta con `id`
+  (`maisa_label_id`) — confirmado y testeado con el token del STS
+  mockeado; bloqueado en la práctica hasta confirmar la respuesta real del
+  STS (`MaisaClient._get_access_token`). Ver "Funcionalidad \*" más arriba
+  para el detalle completo del ejemplo real, incluida la autenticación vía
+  STS (confirmado que reemplaza una API key estática — diseño anterior,
+  corregido).
 - **`update_agent` completo**: confirmado que el caso de uso vinculado
   (`primaryParentId`) NO se puede cambiar en un `PUT` — solo actualiza los
   campos ("fields") del Agent, sin `use_case_id` como parámetro. Vía

@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
@@ -27,25 +28,36 @@ def _label(**overrides) -> UseCaseLabel:
     return UseCaseLabel(**data)
 
 
+async def test_get_access_token_is_not_implemented():
+    client = MaisaClient(client=httpx.AsyncClient())
+
+    with pytest.raises(NotImplementedError):
+        await client._get_access_token()
+
+    await client._client.aclose()
+
+
 def _make_labels_client(captured: list[dict]) -> httpx.AsyncClient:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert request.url.path == "/organizations/org-1/labels"
-        assert request.headers["Authorization"] == f"Bearer {settings.maisa_api_key}"
+        assert request.headers["Authorization"] == "Bearer fake-sts-token"
         captured.append(json.loads(request.content))
         return httpx.Response(200, json={"id": "maisa-generated-id", "name": "Caso 1"})
 
     return httpx.AsyncClient(
         base_url=settings.maisa_base_url,
-        headers={"Authorization": f"Bearer {settings.maisa_api_key}"},
         transport=httpx.MockTransport(handler),
     )
 
 
-async def test_create_label_posts_to_organization_scoped_endpoint():
+async def test_create_label_posts_to_organization_scoped_endpoint(monkeypatch):
     captured: list[dict] = []
     http_client = _make_labels_client(captured)
     client = MaisaClient(client=http_client)
+    monkeypatch.setattr(
+        client, "_get_access_token", AsyncMock(return_value="fake-sts-token")
+    )
     label = _label()
 
     maisa_label_id = await client.create_label(label)
@@ -58,18 +70,32 @@ async def test_create_label_posts_to_organization_scoped_endpoint():
     await http_client.aclose()
 
 
-async def test_create_label_raises_on_http_error():
+async def test_create_label_raises_on_http_error(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(400, json={"error": "bad request"})
 
     http_client = httpx.AsyncClient(
         base_url=settings.maisa_base_url,
-        headers={"Authorization": f"Bearer {settings.maisa_api_key}"},
         transport=httpx.MockTransport(handler),
     )
     client = MaisaClient(client=http_client)
+    monkeypatch.setattr(
+        client, "_get_access_token", AsyncMock(return_value="fake-sts-token")
+    )
 
     with pytest.raises(httpx.HTTPStatusError):
+        await client.create_label(_label())
+
+    await http_client.aclose()
+
+
+async def test_create_label_propagates_not_implemented_from_token_fetch():
+    # Sin mockear _get_access_token: create_label debe fallar ahi mismo,
+    # sin llegar a hacer ninguna llamada HTTP real a Maisa.
+    http_client = httpx.AsyncClient(base_url=settings.maisa_base_url)
+    client = MaisaClient(client=http_client)
+
+    with pytest.raises(NotImplementedError):
         await client.create_label(_label())
 
     await http_client.aclose()

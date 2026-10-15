@@ -15,6 +15,12 @@ async def test_maisa_client_placeholders_raise_not_implemented():
         await client.get_updated_workers(date(2026, 7, 27))
     with pytest.raises(NotImplementedError):
         await client.update_label("maisa-1", label=None)
+    # create_label ya construye la peticion real a Maisa, pero sigue
+    # bloqueado transitivamente por _get_access_token (respuesta del STS
+    # sin confirmar) - ver test_maisa_client.py para el payload ya testeado
+    # con el token mockeado.
+    with pytest.raises(NotImplementedError):
+        await client.create_label(label=None)
 
     await client._client.aclose()
 

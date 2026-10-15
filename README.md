@@ -12,8 +12,10 @@ decisiones pendientes y la estructura del proyecto.
     + get/update de OpenPages, `UseCaseLabelRepository`/
     `NoxusUseCaseLabelRepository` sobre Postgres/RDS).
   - "Funcionalidad \*": tabla intermedia → Maisa/Noxus (`MaisaLabelSyncService`/
-    `NoxusLabelSyncService`). `MaisaClient.create_label` ya implementado
-    (contrato REST confirmado); `MaisaClient.update_label` y
+    `NoxusLabelSyncService`). `MaisaClient.create_label` ya construye la
+    llamada real confirmada (URL/body/respuesta), pero sigue bloqueado en
+    la práctica por `MaisaClient._get_access_token` (autenticación vía STS,
+    forma de la respuesta sin confirmar); `MaisaClient.update_label` y
     `NoxusClient.create_label`/`update_label` siguen siendo placeholders
     hasta tener su contrato REST real.
 - **Implementado:** Flujo 2 (workers D-1, ambos tenants) —
@@ -46,13 +48,24 @@ pipenv run uvicorn sinc_amn.main:app --reload --app-dir grc
 
 Variables de entorno requeridas (ver `grc/sinc_amn/config.py`), prefijo
 `SINC_AMN_`: `AURON_API_KEY`, `AURON_ZEN_INSTANCE_ID`, `MAISA_BASE_URL`,
-`MAISA_API_KEY`, `NOXUS_BASE_URL`, `NOXUS_API_KEY`, `GENERIC_USE_CASE_ID`,
-`INTERMEDIATE_DB_DSN`, `MAISA_ORGANIZATION_ID`, `NOXUS_ORGANIZATION_ID`.
-`AWS_ACCOUNT_ID` (opcional hoy, pero necesaria para `create_agent`/
-`update_agent` — cuenta AWS donde corre el microservicio, field `"3405"`
-de OpenPages, fija por entidad/entorno, la inyecta el pipeline de
-despliegue). `AURON_BASE_URL` es opcional: si no se setea, se deriva de
-`AURON_ZEN_INSTANCE_ID`
+`MAISA_STS_API_KEY`, `MAISA_STS_CLIENT_ID`, `MAISA_STS_CLIENT_SECRET`,
+`MAISA_DOCUMENTDB_DSN`, `NOXUS_BASE_URL`, `NOXUS_API_KEY`,
+`GENERIC_USE_CASE_ID`, `INTERMEDIATE_DB_DSN`, `MAISA_ORGANIZATION_ID`,
+`NOXUS_ORGANIZATION_ID`. `MAISA_STS_URL` es opcional: por defecto
+`http://sts:8080/tokens/jwsid/generic` (nombre de servicio interno de
+Kubernetes, estable dentro del cluster — Maisa autentica vía esta pieza
+STS, no con una API key estática, ver `MaisaClient`).
+`MAISA_DOCUMENTDB_DSN` es la cadena de conexión completa (con credenciales
+y opciones, p.ej. `tls=true&tlsCAFile=global-bundle.pem&replicaSet=rs0`)
+a la BBDD de Maisa (AWS DocumentDB/MongoDB) — confirmado que
+`get_updated_workers` (Flujo 2, lectura de workers) no es REST, es una
+consulta directa a esa BBDD; el `global-bundle.pem` que referencia lo
+descarga el `Dockerfile` en build time, no hace falta proveerlo aparte.
+`AWS_ACCOUNT_ID` (opcional hoy, pero necesaria para
+`create_agent`/`update_agent` — cuenta AWS donde corre el microservicio,
+field `"3405"` de OpenPages, fija por entidad/entorno, la inyecta el
+pipeline de despliegue). `AURON_BASE_URL` es opcional: si no se setea, se
+deriva de `AURON_ZEN_INSTANCE_ID`
 (`https://<zen_instance_id>.eu-de.openpages.cloud.ibm.com`); solo hace falta
 fijarla a mano si el host real no sigue ese patrón.
 

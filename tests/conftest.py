@@ -8,7 +8,14 @@ os.environ.setdefault("SINC_AMN_AURON_BASE_URL", "https://auron.test")
 os.environ.setdefault("SINC_AMN_AURON_API_KEY", "test-auron-api-key")
 os.environ.setdefault("SINC_AMN_AURON_ZEN_INSTANCE_ID", "test-zen-instance")
 os.environ.setdefault("SINC_AMN_MAISA_BASE_URL", "https://maisa.test")
-os.environ.setdefault("SINC_AMN_MAISA_API_KEY", "test-maisa-api-key")
+os.environ.setdefault("SINC_AMN_MAISA_STS_API_KEY", "test-maisa-sts-api-key")
+os.environ.setdefault("SINC_AMN_MAISA_STS_CLIENT_ID", "test-maisa-sts-client-id")
+os.environ.setdefault(
+    "SINC_AMN_MAISA_STS_CLIENT_SECRET", "test-maisa-sts-client-secret"
+)
+os.environ.setdefault(
+    "SINC_AMN_MAISA_DOCUMENTDB_DSN", "mongodb://test:test@localhost:27017/"
+)
 os.environ.setdefault("SINC_AMN_NOXUS_BASE_URL", "https://noxus.test")
 os.environ.setdefault("SINC_AMN_NOXUS_API_KEY", "test-noxus-api-key")
 os.environ.setdefault("SINC_AMN_GENERIC_USE_CASE_ID", "test-generic-use-case")
