@@ -118,7 +118,7 @@ def _make_use_cases_client(calls: list[dict]) -> httpx.AsyncClient:
         statement = body["statement"]
         offset = body["offset"]
 
-        if "'Maisa%'" in statement:
+        if "[Engagement].[Resource ID] LIKE '11342'" in statement:
             if offset == 0:
                 return httpx.Response(
                     200,
@@ -150,7 +150,7 @@ def _make_use_cases_client(calls: list[dict]) -> httpx.AsyncClient:
                     "limit": 2,
                 },
             )
-        if "'Noxus%'" in statement:
+        if "[Engagement].[Resource ID] LIKE '15327'" in statement:
             return httpx.Response(200, json={"rows": [], "offset": 0, "limit": 50})
         raise AssertionError(f"unexpected statement: {statement}")
 
@@ -193,9 +193,11 @@ async def test_get_use_cases_queries_each_tenant_with_since_and_paginates(
         statement = call["statement"]
         assert "[Register].[Santander Fields:aux_Business Entity]" in statement
         assert "[Register].[Santander Fields:Owner]" in statement
+        assert "[Register].[Santander Fields:Status]" in statement
         assert "[Register].[Creation Date]" in statement
-        assert "[Register].[Last Modification Date] > '2026-07-15'" in statement
-        assert "[Register].[Santander Fields:Country] = 'ESP'" in statement
+        assert "([Register].[Last Modification Date] > '2026-07-15')" in statement
+        assert "([Register].[Santander Fields:Country] = 'ESP')" in statement
+        assert "[Engagement].[Name]" not in statement
 
     await http_client.aclose()
 

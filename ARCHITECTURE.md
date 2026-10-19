@@ -33,9 +33,15 @@ confirmado que en régimen el disparo es automático por CronJob horario.
    por tenant que trae `Resource ID`, `Name`, `Santander Fields:aux_Business Entity`
    (→ `UseCase.entity`; renombrado desde `Santander Fields:ECB AI Category`, mismo
    campo), `Santander Fields:Country`, `Santander Fields:Owner` (→ `UseCase.owner`),
-   `Creation Date` (→ `UseCase.created_at`) y `Last Modification Date` (→
-   `UseCase.updated_at`), con `WHERE [Engagement].[Name] LIKE 'Maisa%'` (o
-   `'Noxus%'`) `AND [Register].[Last Modification Date] > '<fecha>'` y, si
+   `Creation Date` (→ `UseCase.created_at`), `Last Modification Date` (→
+   `UseCase.updated_at`) y `Santander Fields:Status` (seleccionado, no
+   persistido), con `WHERE ([Register].[Last Modification Date] > '<fecha>')
+   AND ([Engagement].[Resource ID] LIKE '<ai_solution_id>')` — el tenant se
+   identifica por el Resource ID de su AI solution
+   (`settings.auron_maisa_ai_solution_id` = `11342`, `auron_noxus_ai_solution_id`
+   = `15327`, valores de PRE; confirmado con Auron, los Engagements se llaman
+   `AISOL_xxxx` y el antiguo `[Engagement].[Name] LIKE 'Maisa%'` no devolvía
+   nada) y, si
    `settings.auron_use_cases_country` está seteada, `AND [Register].[Santander
    Fields:Country] = '<pais>'` (sin setear: todos los países). Mismo set de columnas
    para ambos tenants (Maisa/Noxus) aunque el ejemplo real que confirmó `Owner`/

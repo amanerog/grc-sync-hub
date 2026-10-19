@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # (ruta relativa) se descarga en el Dockerfile al mismo directorio de
     # trabajo donde arranca el servicio.
     maisa_documentdb_dsn: str
+    # Base de datos dentro del cluster (el DSN no la incluye). Confirmado
+    # por el dump de Maisa (s3://a2k-externaldata/dump_2026-10-15/...),
+    # restaurado en DEV con este mismo nombre.
+    maisa_documentdb_database: str = "gpp_maisa_metrics"
 
     # Noxus
     noxus_base_url: str
@@ -72,10 +76,13 @@ class Settings(BaseSettings):
     # desplegar en ese entorno. Tampoco confirmado si Noxus usa el mismo
     # valor que Maisa (los unicos ejemplos vistos son de Maisa).
     auron_generic_use_case_parent_id: str = "10135"
-    # Id del recurso "AI solution" de cada tenant en OpenPages, usado como
+    # Id del recurso "AI solution" (Engagement) de cada tenant en OpenPages.
+    # Dos usos: filtro de tenant en la query de casos de uso de Flujo 1
+    # (`[Engagement].[Resource ID]`, ver auron_client._use_cases_query) y
     # target_id de AuronClient.associate() al crear el Use Case generico
     # (associationDefinitionId "64", type "CHILD"). Confirmado que Maisa y
-    # Noxus usan ids DISTINTOS (no es el mismo recurso).
+    # Noxus usan ids DISTINTOS. Los defaults son los de PRE (confirmado);
+    # falta el de PRO - sobreescribir al desplegar en ese entorno.
     auron_maisa_ai_solution_id: str = "11342"
     auron_noxus_ai_solution_id: str = "15327"
     # Flujo 2: field "3405" ("Identifier of the cloud account... en

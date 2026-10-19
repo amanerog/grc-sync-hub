@@ -29,6 +29,23 @@ class MaisaClient:
             settings.maisa_documentdb_dsn
         )
 
+    @property
+    def _db(self):
+        return self._mongo_client[settings.maisa_documentdb_database]
+
+    async def check_connection(self) -> dict:
+        """Diagnostico de conectividad: ping al cluster + colecciones de la BBDD.
+
+        Fuerza la conexion real (red, TLS y autenticacion), que el
+        constructor no abre. Propaga las excepciones de pymongo tal cual.
+        """
+        await self._mongo_client.admin.command("ping")
+        collections = await self._db.list_collection_names()
+        return {
+            "database": settings.maisa_documentdb_database,
+            "collections": sorted(collections),
+        }
+
     async def get_updated_workers(self, day) -> list[Worker]:
         """Workers actualizados en Maisa para el dia D-1 dado.
 

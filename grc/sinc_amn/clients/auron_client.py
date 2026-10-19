@@ -10,10 +10,20 @@ from sinc_amn.models.use_case import UseCase
 # Query API de OpenPages GRC v2 (POST {auron_base_url}/opgrc/api/v2/query),
 # confirmada con el equipo de Auron. La respuesta pagina via "offset"/"limit"
 # y trae un link "next" mientras queden paginas; cada fila es
-# {"fields": [{"name": ..., "value": ...}, ...]}, sin Engagement.Name - por
-# eso el tenant se resuelve en el propio WHERE (una query por tenant) en vez
-# de leerlo de la respuesta.
-_ENGAGEMENT_PREFIX_BY_TENANT = {"maisa": "Maisa", "noxus": "Noxus"}
+# {"fields": [{"name": ..., "value": ...}, ...]}, sin datos del Engagement -
+# por eso el tenant se resuelve en el propio WHERE (una query por tenant) en
+# vez de leerlo de la respuesta.
+#
+# Confirmado con el equipo de Auron: el tenant se identifica por el Resource
+# ID del Engagement padre (la "AI solution" de Maisa/Noxus,
+# `settings.auron_{maisa,noxus}_ai_solution_id`), no por el nombre - en
+# OpenPages los Engagements se llaman `AISOL_xxxx`, el antiguo filtro
+# `[Engagement].[Name] LIKE 'Maisa%'` no devolvia nada.
+def _ai_solution_id(tenant: str) -> str:
+    return {
+        "maisa": settings.auron_maisa_ai_solution_id,
+        "noxus": settings.auron_noxus_ai_solution_id,
+    }[tenant]
 
 
 def _since_condition() -> str | None:
@@ -28,7 +38,7 @@ def _since_condition() -> str | None:
         return None
     if raw.upper() == "D-1":
         raw = (date.today() - timedelta(days=1)).isoformat()
-    return f"[Register].[Last Modification Date] > '{raw}'"
+    return f"([Register].[Last Modification Date] > '{raw}')"
 
 
 def _country_condition() -> str | None:
@@ -39,7 +49,7 @@ def _country_condition() -> str | None:
     country = settings.auron_use_cases_country
     if not country:
         return None
-    return f"[Register].[Santander Fields:Country] = '{country}'"
+    return f"([Register].[Santander Fields:Country] = '{country}')"
 
 
 def _escape_sql_literal(value: str) -> str:
@@ -54,17 +64,17 @@ _USE_CASE_COLUMNS = (
     "[Register].[Santander Fields:aux_Business Entity], "
     "[Register].[Santander Fields:Country], "
     "[Register].[Santander Fields:Owner], "
+    "[Register].[Santander Fields:Status], "
     "[Register].[Creation Date], "
     "[Register].[Last Modification Date]"
 )
 
 
 def _use_cases_query(tenant: str) -> str:
-    prefix = _ENGAGEMENT_PREFIX_BY_TENANT[tenant]
-    conditions = [f"[Engagement].[Name] LIKE '{prefix}%'"]
+    ai_solution_id = _escape_sql_literal(_ai_solution_id(tenant))
     since_condition = _since_condition()
-    if since_condition:
-        conditions.append(since_condition)
+    conditions = [since_condition] if since_condition else []
+    conditions.append(f"([Engagement].[Resource ID] LIKE '{ai_solution_id}')")
     country_condition = _country_condition()
     if country_condition:
         conditions.append(country_condition)

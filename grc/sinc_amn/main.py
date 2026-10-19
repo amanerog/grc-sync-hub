@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from sinc_amn.api.routes import noxus_labels, use_cases, workers
+from sinc_amn.api.routes import health, noxus_labels, use_cases, workers
 from sinc_amn.core.logging import configure_logging
 from sinc_amn.db.pool import close_pool, create_pool
 
@@ -20,6 +20,7 @@ app = FastAPI(title="sinc-amn", version="0.1.0", lifespan=lifespan)
 app.include_router(use_cases.router)
 app.include_router(noxus_labels.router)
 app.include_router(workers.router)
+app.include_router(health.router)
 
 
 @app.get("/health")
