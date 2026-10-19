@@ -396,7 +396,7 @@ class AuronClient:
         )
         response.raise_for_status()
 
-    async def get_agent_by_worker_id(self, worker_id: str) -> dict | None:
+    async def get_agent_by_worker_id(self, worker_id: str, tenant: str) -> dict | None:
         """Busca el Agent en OpenPages cuya tag worker_id coincide, o None.
 
         worker_id (de Maisa/Noxus) no es el resource_id/agent_id de OpenPages:
@@ -405,20 +405,34 @@ class AuronClient:
         "Santander-Fields-Agent:PlatformAgentID"), y hay que localizarlo por
         ese campo, no por ID directo.
 
-        El dict devuelto debe incluir `"id"` (agent_id) y `"primaryParentId"`
-        (el caso de uso al que esta vinculado hoy) - `WorkerSyncService`
-        compara este ultimo contra el `use_case_id` nuevo para decidir si
-        basta un `update_agent` o hace falta borrar+recrear (ver
-        `create_agent`/`update_agent`, el caso de uso vinculado no se puede
-        cambiar en un `PUT`).
-
-        TODO: placeholder. Pendiente el endpoint real de busqueda por campo
-        (probablemente el mismo mecanismo de consulta masiva que
-        get_use_cases, filtrando por field id "3658" en vez de por
-        Engagement) - ningun ejemplo real visto hasta ahora es de busqueda,
-        solo de creacion.
+        Query confirmada por el equipo de Auron: tipo `[AIComponent]`, hijo
+        de un `[Register]` (caso de uso) que cuelga del `[Engagement]` del
+        tenant (`_ai_solution_id`). Se anade `[Register].[Resource ID]` al
+        SELECT para devolver `"primaryParentId"` (el caso de uso al que
+        esta vinculado hoy) - `WorkerSyncService` lo compara con el
+        `use_case_id` nuevo para decidir si basta un `update_agent` o hay
+        que reasociar (el caso de uso vinculado no se puede cambiar en un
+        `PUT`).
         """
-        raise NotImplementedError
+        statement = (
+            "SELECT [AIComponent].[Resource ID], "
+            "[AIComponent].[Santander-Fields-Agent:PlatformAgentID], "
+            "[Register].[Resource ID] "
+            "FROM [AIComponent] "
+            "JOIN [Register] ON CHILD([AIComponent]) "
+            "JOIN [Engagement] ON PARENT([Register]) "
+            f"WHERE ([Engagement].[Resource ID] = '{_escape_sql_literal(_ai_solution_id(tenant))}' "
+            "AND [AIComponent].[Santander-Fields-Agent:PlatformAgentID] = "
+            f"'{_escape_sql_literal(worker_id)}')"
+        )
+        headers = await self._auth_headers()
+        rows = await self._paginate_query(statement, headers)
+        if not rows:
+            return None
+        # Por posicion, no por nombre: las dos columnas "Resource ID"
+        # (AIComponent y Register) llegan con el mismo `name`.
+        fields = rows[0]["fields"]
+        return {"id": fields[0].get("value"), "primaryParentId": fields[2].get("value")}
 
     async def create_agent(
         self,

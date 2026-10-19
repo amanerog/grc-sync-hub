@@ -138,7 +138,7 @@ def _make_use_cases_client(calls: list[dict]) -> httpx.AsyncClient:
         statement = body["statement"]
         offset = body["offset"]
 
-        if "[Engagement].[Resource ID] LIKE '11342'" in statement:
+        if "[Engagement].[Resource ID] LIKE '11334'" in statement:
             if offset == 0:
                 return httpx.Response(
                     200,
@@ -740,5 +740,56 @@ async def test_update_agent_raises_when_provider_version_id_missing():
             agent_owner="agent-owner@example.com",
             provider_version_id=None,
         )
+
+    await http_client.aclose()
+
+
+def _agent_query_client(calls: list[dict], rows: list[dict]) -> httpx.AsyncClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(
+                200, json={"access_token": "tok-123", "expires_in": 3600}
+            )
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={"rows": rows, "offset": 0, "limit": 50})
+
+    return httpx.AsyncClient(
+        base_url=settings.auron_base_url, transport=httpx.MockTransport(handler)
+    )
+
+
+async def test_get_agent_by_worker_id_returns_agent_and_parent_use_case():
+    calls: list[dict] = []
+    rows = [
+        {
+            "fields": [
+                {"name": "Resource ID", "value": "77001"},
+                {"name": "Santander-Fields-Agent:PlatformAgentID", "value": "WM1"},
+                {"name": "Resource ID", "value": "40161"},
+            ]
+        }
+    ]
+    http_client = _agent_query_client(calls, rows)
+
+    agent = await AuronClient(client=http_client).get_agent_by_worker_id("WM1", "maisa")
+
+    assert agent == {"id": "77001", "primaryParentId": "40161"}
+    statement = calls[0]["statement"]
+    assert "FROM [AIComponent]" in statement
+    assert "JOIN [Register] ON CHILD([AIComponent])" in statement
+    assert "[Engagement].[Resource ID] = '11334'" in statement
+    assert "[AIComponent].[Santander-Fields-Agent:PlatformAgentID] = 'WM1'" in statement
+
+    await http_client.aclose()
+
+
+async def test_get_agent_by_worker_id_returns_none_when_not_found():
+    calls: list[dict] = []
+    http_client = _agent_query_client(calls, rows=[])
+
+    agent = await AuronClient(client=http_client).get_agent_by_worker_id("WM1", "noxus")
+
+    assert agent is None
+    assert "[Engagement].[Resource ID] = '15327'" in calls[0]["statement"]
 
     await http_client.aclose()

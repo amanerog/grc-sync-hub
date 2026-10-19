@@ -46,7 +46,7 @@ class WorkerSyncService:
         self._noxus_use_case_labels = noxus_use_case_labels
         self._sync_failures = sync_failures
 
-    async def run(self) -> dict:
+    async def run(self, day: date | None = None) -> dict:
         """Ejecuta el Flujo 2 y devuelve un resumen `{total, succeeded, failed}`.
 
         Aislamiento por item (confirmado): un worker que falle no interrumpe
@@ -59,12 +59,12 @@ class WorkerSyncService:
         a que Maisa/Noxus no ofrecen un lookup por ID (ver docstring de
         `WorkerSyncFailureRepository`).
         """
-        target_day = date.today() - timedelta(days=1)
+        # `day` solo para pruebas/reprocesos manuales; el CronJob no lo pasa.
+        target_day = day or date.today() - timedelta(days=1)
 
-        workers = [
-            *await self._maisa.get_updated_workers(target_day),  # 1A
-            *await self._noxus.get_updated_workers(target_day),  # 1B
-        ]
+        workers = await self._maisa.get_updated_workers(target_day)  # 1A
+        if settings.noxus_workers_enabled:
+            workers += await self._noxus.get_updated_workers(target_day)  # 1B
 
         # 2AB: procesar la informacion combinada de ambos origenes.
         results = [await self._ingest_worker(worker) for worker in workers]
@@ -74,23 +74,69 @@ class WorkerSyncService:
             [await self._ingest_worker(worker) for worker in retried_workers]
         )
 
+        # None = omitido a proposito (ver _skip_reason), no cuenta como fallo.
         total = len(results)
-        succeeded = sum(results)
-        failed = total - succeeded
+        succeeded = sum(1 for r in results if r is True)
+        failed = sum(1 for r in results if r is False)
+        skipped = total - succeeded - failed
         logger.info(
-            "worker_sync: procesados %d workers (D-1=%s, %d ok, %d fallidos, %d reintentos)",
+            "worker_sync: procesados %d workers (D-1=%s, %d ok, %d fallidos, "
+            "%d omitidos, %d reintentos)",
             len(workers),
             target_day,
             succeeded,
             failed,
+            skipped,
             len(retried_workers),
         )
-        return {"total": total, "succeeded": succeeded, "failed": failed}
+        return {
+            "total": total,
+            "succeeded": succeeded,
+            "failed": failed,
+            "skipped": skipped,
+        }
 
-    async def _ingest_worker(self, worker: Worker) -> bool:
-        """Ingesta un worker de forma aislada: nunca propaga un fallo, lo
-        registra (log + intento de MonitoringStore) y devuelve False.
+    async def _skip_reason(self, worker: Worker) -> str | None:
+        """Motivo para NO crear/actualizar el Agent de este worker, o None.
+
+        Acordado para Maisa: el caso de uso sale del label
+        `<ResourceID>_<nombre>` (ver MaisaClient.get_updated_workers) y se
+        comprueba que existe en Auron; si no hay label con ese formato o el
+        caso de uso no existe, el worker no se crea - sin fallback al caso
+        de uso generico (que sigue aplicando a Noxus).
         """
+        if worker.tenant != "maisa":
+            return None
+        if worker.use_case_id is None:
+            return "sin label <ResourceID>_<nombre>"
+        found = await self._auron.get_use_cases_by_resource_ids(
+            [worker.use_case_id], worker.tenant
+        )
+        if not found:
+            return f"caso de uso {worker.use_case_id} no existe en Auron"
+        return None
+
+    async def _ingest_worker(self, worker: Worker) -> bool | None:
+        """Ingesta un worker de forma aislada: nunca propaga un fallo, lo
+        registra (log + intento de MonitoringStore) y devuelve False. None si
+        se omite a proposito (ver `_skip_reason`).
+        """
+        try:
+            skip_reason = await self._skip_reason(worker)
+        except Exception as exc:
+            logger.exception(
+                "worker_sync: fallo validando el caso de uso de %s", worker.worker_id
+            )
+            await self._track_result(worker, succeeded=False, error=str(exc))
+            return False
+        if skip_reason:
+            logger.info(
+                "worker_sync: worker %s omitido (%s)", worker.worker_id, skip_reason
+            )
+            # Si venia de un fallo anterior, deja de reintentarse.
+            await self._track_result(worker, succeeded=True)
+            return None
+
         # 3A/3B-5A/5B: alta/actualizacion del agente, con la tag worker_id y
         # el enlace al caso de uso incluidos en el mismo payload de creacion
         # (confirmado: primaryParentId, sin llamada de asociacion aparte
@@ -107,7 +153,9 @@ class WorkerSyncService:
         status = "success"
         error_message = ""
         try:
-            agent = await self._auron.get_agent_by_worker_id(worker.worker_id)
+            agent = await self._auron.get_agent_by_worker_id(
+                worker.worker_id, worker.tenant
+            )
 
             # Owner del Use Case (field "3261" del Agent, distinto del owner
             # del propio Agent) - se lee de la tabla intermedia del tenant

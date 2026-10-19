@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Response
 
 from sinc_amn.clients.auron_client import AuronClient
@@ -19,8 +21,11 @@ router = APIRouter(prefix="/flows/workers", tags=["workers"])
 
 
 @router.post("/sync")
-async def sync_workers(response: Response) -> dict:
+async def sync_workers(response: Response, day: date | None = None) -> dict:
     """Disparado por el CronJob diario. Ejecuta el Flujo 2 (workers D-1).
+
+    `?day=YYYY-MM-DD` (opcional) procesa ese dia en vez de D-1 - para
+    pruebas o reprocesar un dia concreto a mano.
 
     202 si todos los items del batch se procesaron bien (o no habia
     ninguno); 207 (Multi-Status) si hubo algun fallo aislado.
@@ -35,6 +40,6 @@ async def sync_workers(response: Response) -> dict:
         noxus_use_case_labels=NoxusUseCaseLabelRepository(get_pool()),
         sync_failures=WorkerSyncFailureRepository(get_pool()),
     )
-    summary = await service.run()
+    summary = await service.run(day=day)
     response.status_code = 202 if summary["failed"] == 0 else 207
     return {"status": "accepted", **summary}

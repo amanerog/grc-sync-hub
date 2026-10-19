@@ -38,7 +38,7 @@ confirmado que en régimen el disparo es automático por CronJob horario.
    persistido), con `WHERE ([Register].[Last Modification Date] > '<fecha>')
    AND ([Engagement].[Resource ID] LIKE '<ai_solution_id>')` — el tenant se
    identifica por el Resource ID de su AI solution
-   (`settings.auron_maisa_ai_solution_id` = `11342`, `auron_noxus_ai_solution_id`
+   (`settings.auron_maisa_ai_solution_id` = `11334`, `auron_noxus_ai_solution_id`
    = `15327`, valores de PRE; confirmado con Auron, los Engagements se llaman
    `AISOL_xxxx` y el antiguo `[Engagement].[Name] LIKE 'Maisa%'` no devolvía
    nada) y, si
@@ -299,22 +299,45 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      uso asociado — sin confirmar si es el mismo cluster que el de la
      colección `labels` mencionada en "Funcionalidad \*" más arriba (ahora
      fuera de alcance de este microservicio, ver "Descartado / fuera de
-     alcance" en "Pendiente de acordar"). Conexión confirmada
-     (`settings.maisa_documentdb_dsn`, driver `motor` ya añadido al
-     `Pipfile`). Sin confirmar todavía: nombre de la base de datos dentro
-     del cluster, colección(es) involucradas y su esquema (qué campo
-     identifica "actualizado en D-1", cómo se relaciona el worker con su
-     caso de uso). Ver punto 2 de "Pendiente de acordar".
+     alcance" en "Pendiente de acordar"). **Implementado** contra el
+     esquema real (BBDD `gpp_maisa_metrics`, validado con un dump de
+     Maisa restaurado en DEV):
+     - **Un Agent de OpenPages = un `worker_manager`** (el agente: nombre
+       real, workspace, labels). Cada documento de `worker` es una
+       **versión** suya (`worker_version` 1..N). `Worker.worker_id` =
+       `worker_manager.worker_manager` (confirmado: los Agents ya
+       existentes en OpenPages PRE llevan ese id en `PlatformAgentID`).
+     - **"Actualizado en D-1"** = alguna versión con `maisa_updated_ts`
+       ese día — no `updated_ts`, que lo reescribe el proceso PROFILER
+       aunque el worker no cambie.
+     - Solo agentes con una versión `DEPLOYED` (la más alta va como
+       `provider_version_id`), `is_deleted=false`, sin
+       `is_user_excluded`, de `settings.maisa_workers_entity`/
+       `maisa_workers_environment` (la BBDD mezcla entidades y entornos;
+       defaults `Spain`/`PRE`).
+     - **Caso de uso:** `worker_manager.label_ids` → `label.name`, con
+       formato acordado `<ResourceID>_<nombre>`; el prefijo numérico es el
+       Resource ID del caso de uso. **Si no hay label con ese formato o el
+       caso de uso no existe en Auron, el worker no se crea** (se omite,
+       no es fallo; sin fallback al caso de uso genérico para Maisa —
+       `WorkerSyncService._skip_reason`).
+     - Owner del Agent: `user.email` del `user_id` =
+       `worker_manager.worker_manager_user`.
    - `1B` `NoxusClient.get_updated_workers(day)` — GET REST API a Noxus: workspaces
-     y metadata de agents (mismo modelo `Worker`, ver nota arriba).
+     y metadata de agents (mismo modelo `Worker`, ver nota arriba). Sigue en
+     placeholder: desactivado con `settings.noxus_workers_enabled=False`
+     (default) para que Flujo 2 procese solo Maisa.
+   - `POST /flows/workers/sync?day=YYYY-MM-DD` permite procesar un día
+     concreto en vez de D-1 (pruebas/reprocesos; el CronJob no lo pasa).
 2. `2AB` El microservicio procesa la información combinada de ambos orígenes.
 3. Para cada worker, ingesta en Auron/OpenPages (`3A-5A` para origen Maisa,
    `3B-5B` para origen Noxus — mismo procedimiento, ejecutado por separado por
    origen). **`AuronClient.create_agent`/`update_agent`/`dissociate` ya
    implementados** (ver "Ya resueltos e implementados" en "Pendiente de
-   acordar"); `get_agent_by_worker_id` **sigue en placeholder**
-   (`NotImplementedError`) por el mecanismo de búsqueda por campo (punto
-   6). Mecanismo confirmado por dos colecciones Postman reales ("IBM Open
+   acordar"); `get_agent_by_worker_id` **implementado** con la query
+   confirmada por Auron: `[AIComponent]` hijo (`CHILD`) de un `[Register]`
+   que cuelga del `[Engagement]` del tenant, filtrando por
+   `[AIComponent].[Santander-Fields-Agent:PlatformAgentID]`. Mecanismo confirmado por dos colecciones Postman reales ("IBM Open
    Pages" y "TOM-Catalogación") más un ejemplo real del equipo de
    Auron/IBM para la reasignación:
    - **`worker_id` ≠ `agent_id`**: OpenPages identifica el Agent por su propio
@@ -436,7 +459,7 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
        asociarlo a la AI solution del tenant (`associate`,
        `associationDefinitionId: "64"`, `type: "CHILD"`, ya implementado
        genéricamente — **confirmado que Maisa y Noxus usan target_id
-       DISTINTOS**: `settings.auron_maisa_ai_solution_id` (`"11342"`) y
+       DISTINTOS**: `settings.auron_maisa_ai_solution_id` (`"11334"`) y
        `settings.auron_noxus_ai_solution_id` (`"15327"`)).
      - Reemplazaría `settings.generic_use_case_id` (hoy un único string
        fijo) por esta resolución dinámica. **Sin implementar todavía** —
@@ -547,28 +570,14 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
    límites de `name`, cómo mantiene Noxus su propio `workerCount`, etc.) y
    si Noxus tiene un concepto de "organizationId" equivalente al de Maisa
    (`settings.noxus_organization_id`, hoy sin valor).
-2. **`get_updated_workers` (Maisa y Noxus)** — es el primer paso de Flujo 2
-   (`1A`/`1B`); junto con el punto siguiente, bloquea Flujo 2 de punta a
-   punta (la parte de escritura en Auron ya está lista y testeada,
-   esperando estos dos datos).
-   - **Maisa: confirmado el mecanismo (consulta directa a su BBDD,
-     AWS DocumentDB/MongoDB) y la conexión (DSN real ya en
-     `settings.maisa_documentdb_dsn`, driver `motor` ya añadido).** Falta
-     explorar: nombre de la base de datos dentro del cluster (el DSN no lo
-     incluye), colección(es) de workers/agents y su esquema, campo de
-     filtro para "actualizado en D-1", y cómo se relaciona cada worker con
-     su caso de uso. Sin confirmar si es el mismo cluster DocumentDB que
-     el de la colección `labels` mencionada en el PPT (el nombre de
-     cluster visto, `maisa-metrics-docdb`, sugiere que podría ser una
-     instancia distinta/separada).
-   - **Noxus: sin confirmar nada todavía** — ni mecanismo (REST o
-     también acceso directo a BBDD, a confirmar), ni URL/esquema si
-     resulta ser REST.
-3. **`get_agent_by_worker_id`**: pendiente el endpoint real de búsqueda de
-   un Agent por su campo personalizado `worker_id` (probablemente el mismo
-   mecanismo de consulta masiva que `get_use_cases`, filtrando por field id
-   `"3658"`) — ningún ejemplo real visto hasta ahora es de búsqueda, solo
-   de creación.
+2. **`NoxusClient.get_updated_workers`** — sin confirmar nada todavía
+   (ni mecanismo, REST o acceso directo a BBDD, ni URL/esquema). Flujo 2
+   lo omite mientras `settings.noxus_workers_enabled=False`. La parte de
+   Maisa (`1A`) ya está implementada (ver Flujo 2, paso 1).
+3. **Pendiente de confirmar con Maisa**: que `maisa_updated_ts` es el
+   campo que marca un cambio real del worker, y que todos los labels de
+   caso de uso seguirán el formato `<ResourceID>_<nombre>` (hoy solo 3
+   de 96 labels del dump lo cumplen).
 4. **Diseño funcional del caso de uso genérico "Pendiente de
    regularizar"**: sin confirmar si necesita granularidad por
    consumidor/usuario (un registro por `(tenant, consumerId)`) o basta uno

@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi.testclient import TestClient
 
 from sinc_amn.api.routes import noxus_labels, use_cases, workers
@@ -12,8 +14,8 @@ class _FakeService:
         self.kwargs = kwargs
         _FakeService.calls.append(("init", kwargs))
 
-    async def run(self):
-        _FakeService.calls.append(("run", None))
+    async def run(self, **kwargs):
+        _FakeService.calls.append(("run", kwargs or None))
         return _FakeService.summary
 
 
@@ -102,4 +104,16 @@ def test_sync_workers_endpoint(monkeypatch):
         "succeeded": 1,
         "failed": 0,
     }
-    assert ("run", None) in _FakeService.calls
+    assert ("run", {"day": None}) in _FakeService.calls
+
+
+def test_sync_workers_endpoint_passes_day_query_param(monkeypatch):
+    _FakeService.calls = []
+    _FakeService.summary = {"total": 0, "succeeded": 0, "failed": 0}
+    monkeypatch.setattr(workers, "WorkerSyncService", _FakeService)
+    monkeypatch.setattr(workers, "get_pool", lambda: object())
+
+    response = TestClient(app).post("/flows/workers/sync?day=2026-10-14")
+
+    assert response.status_code == 202
+    assert ("run", {"day": date(2026, 10, 14)}) in _FakeService.calls

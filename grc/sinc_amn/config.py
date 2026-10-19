@@ -54,10 +54,20 @@ class Settings(BaseSettings):
     # por el dump de Maisa (s3://a2k-externaldata/dump_2026-10-15/...),
     # restaurado en DEV con este mismo nombre.
     maisa_documentdb_database: str = "gpp_maisa_metrics"
+    # Flujo 2 (1A): la BBDD de Maisa mezcla entidades (Spain, Brazil...) y
+    # entornos (DEV/PRE/PRO) - solo se sincronizan los workers de esta
+    # entidad/entorno. Defaults = despliegue actual (Auron PRE, Spain);
+    # sobreescribir en PRO (SINC_AMN_MAISA_WORKERS_ENVIRONMENT=PRO).
+    maisa_workers_entity: str = "Spain"
+    maisa_workers_environment: str = "PRE"
 
     # Noxus
     noxus_base_url: str
     noxus_api_key: str
+    # Flujo 2 (1B): NoxusClient.get_updated_workers sigue sin implementar
+    # (contrato sin confirmar) - mientras este a False, Flujo 2 solo procesa
+    # Maisa en vez de fallar entero con NotImplementedError.
+    noxus_workers_enabled: bool = False
 
     # Flujo 2: caso de uso generico para workers sin use_case_id
     generic_use_case_id: str
@@ -83,7 +93,7 @@ class Settings(BaseSettings):
     # (associationDefinitionId "64", type "CHILD"). Confirmado que Maisa y
     # Noxus usan ids DISTINTOS. Los defaults son los de PRE (confirmado);
     # falta el de PRO - sobreescribir al desplegar en ese entorno.
-    auron_maisa_ai_solution_id: str = "11342"
+    auron_maisa_ai_solution_id: str = "11334"
     auron_noxus_ai_solution_id: str = "15327"
     # Flujo 2: field "3405" ("Identifier of the cloud account... en
     # Development") de create_agent - confirmado que es el AWS account ID
