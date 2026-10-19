@@ -111,6 +111,24 @@ def _resource_ids_query(resource_ids: list[str]) -> str:
     )
 
 
+def _field_text(value) -> str | None:
+    """Valor de un campo de la Query API como texto.
+
+    Los campos enumerados de OpenPages (p.ej. `Santander Fields:aux_Business
+    Entity`) no vienen como string sino como objeto
+    `{"id": ..., "name": ..., "index": ..., "hidden": ...}` - se usa su
+    `name`. Los multi-valor (lista de esos objetos) se unen con ", ".
+    """
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return value.get("name")
+    if isinstance(value, list):
+        names = [_field_text(item) for item in value]
+        return ", ".join(name for name in names if name) or None
+    return str(value)
+
+
 _TOKEN_EXPIRY_BUFFER_SECONDS = 60
 
 
@@ -238,8 +256,10 @@ class AuronClient:
             # .get() (no []): a diferencia de Resource ID/Name/Creation Date/
             # Last Modification Date, no tenemos confirmado que estos campos
             # personalizados vengan siempre rellenos para todos los registros.
-            entity=values.get("Santander Fields:aux_Business Entity"),
-            owner=values.get("Santander Fields:Owner"),
+            # _field_text: aux_Business Entity es un enumerado (llega como
+            # objeto, no string); Owner se trata igual por si tambien lo es.
+            entity=_field_text(values.get("Santander Fields:aux_Business Entity")),
+            owner=_field_text(values.get("Santander Fields:Owner")),
             created_at=datetime.fromisoformat(values["Creation Date"]),
             updated_at=datetime.fromisoformat(values["Last Modification Date"]),
         )

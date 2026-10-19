@@ -8,6 +8,7 @@ from sinc_amn.clients.auron_client import (
     AuronClient,
     _country_condition,
     _escape_sql_literal,
+    _field_text,
     _since_condition,
 )
 from sinc_amn.config import settings
@@ -81,6 +82,25 @@ def _row(
             {"name": "Last Modification Date", "value": last_modification_date},
         ]
     }
+
+
+def test_parse_use_case_reads_name_of_enum_fields():
+    # aux_Business Entity es un enumerado: OpenPages lo devuelve como objeto.
+    entity = {"id": "12025", "name": "Santander Spain", "index": 3, "hidden": False}
+    row = _row("11075", "Transaction Analysis", "2026-07-20T17:29:20.000+02:00")
+    row["fields"][2]["value"] = entity
+
+    use_case = AuronClient._parse_use_case(row, tenant="maisa")
+
+    assert use_case.entity == "Santander Spain"
+
+
+def test_field_text_handles_strings_enums_and_lists():
+    assert _field_text(None) is None
+    assert _field_text("ESP") == "ESP"
+    assert _field_text({"id": "1", "name": "A"}) == "A"
+    assert _field_text([{"id": "1", "name": "A"}, {"id": "2", "name": "B"}]) == "A, B"
+    assert _field_text([]) is None
 
 
 def test_parse_use_case_tolerates_field_without_value_key():
