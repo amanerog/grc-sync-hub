@@ -19,6 +19,11 @@ from sinc_amn.models.use_case import UseCase
 # `settings.auron_{maisa,noxus}_ai_solution_id`), no por el nombre - en
 # OpenPages los Engagements se llaman `AISOL_xxxx`, el antiguo filtro
 # `[Engagement].[Name] LIKE 'Maisa%'` no devolvia nada.
+# Nombre visible de cada tenant, usado en el nombre de los Agents
+# ("[Agent Maisa] ...", ver create_agent/update_agent).
+_TENANT_DISPLAY_NAME = {"maisa": "Maisa", "noxus": "Noxus"}
+
+
 def _ai_solution_id(tenant: str) -> str:
     return {
         "maisa": settings.auron_maisa_ai_solution_id,
@@ -38,7 +43,7 @@ def _since_condition() -> str | None:
         return None
     if raw.upper() == "D-1":
         raw = (date.today() - timedelta(days=1)).isoformat()
-    return f"([Register].[Last Modification Date] > '{raw}')"
+    return f"[Register].[Last Modification Date] > '{raw}'"
 
 
 def _country_condition() -> str | None:
@@ -49,7 +54,7 @@ def _country_condition() -> str | None:
     country = settings.auron_use_cases_country
     if not country:
         return None
-    return f"([Register].[Santander Fields:Country] = '{country}')"
+    return f"[Register].[Santander Fields:Country] = '{country}'"
 
 
 def _escape_sql_literal(value: str) -> str:
@@ -74,15 +79,16 @@ def _use_cases_query(tenant: str) -> str:
     ai_solution_id = _escape_sql_literal(_ai_solution_id(tenant))
     since_condition = _since_condition()
     conditions = [since_condition] if since_condition else []
-    conditions.append(f"([Engagement].[Resource ID] LIKE '{ai_solution_id}')")
+    conditions.append(f"[Engagement].[Resource ID] LIKE '{ai_solution_id}'")
     country_condition = _country_condition()
     if country_condition:
         conditions.append(country_condition)
+    # Cada condicion entre parentesis, igual que la query confirmada por Auron.
     return (
         f"SELECT {_USE_CASE_COLUMNS} "
         "FROM [Register] "
         "JOIN [Engagement] ON PARENT([Register]) "
-        f"WHERE {' AND '.join(conditions)}"
+        f"WHERE {' AND '.join(f'({c})' for c in conditions)}"
     )
 
 
@@ -430,7 +436,7 @@ class AuronClient:
         (`worker.agent_name`/`worker.agent_description`, ver
         `models/worker.py`), no se generan aqui - solo el prefijo `[Agent
         Maisa]`/`[Agent Noxus]` de `name` lo añade este metodo, usando
-        `tenant` (mismo mapeo que `_ENGAGEMENT_PREFIX_BY_TENANT`).
+        `tenant` (mismo mapeo que `_TENANT_DISPLAY_NAME`).
 
         **Confirmado que hacer si un campo llega `None`/vacio:** `name`,
         `agent_owner` y `provider_version_id` son obligatorios - si
@@ -480,7 +486,7 @@ class AuronClient:
                 f"provider_version_id={provider_version_id!r})"
             )
 
-        prefix = _ENGAGEMENT_PREFIX_BY_TENANT[tenant]
+        prefix = _TENANT_DISPLAY_NAME[tenant]
         payload = {
             "name": f"[Agent {prefix}] {name}",
             "typeDefinitionId": settings.auron_agent_type_definition_id,
@@ -573,7 +579,7 @@ class AuronClient:
                 f"provider_version_id={provider_version_id!r})"
             )
 
-        prefix = _ENGAGEMENT_PREFIX_BY_TENANT[tenant]
+        prefix = _TENANT_DISPLAY_NAME[tenant]
         payload = {
             "name": f"[Agent {prefix}] {name}",
             "fields": {
