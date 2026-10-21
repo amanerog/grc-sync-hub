@@ -401,9 +401,8 @@ class AuronClient:
 
         worker_id (de Maisa/Noxus) no es el resource_id/agent_id de OpenPages:
         se guarda como campo personalizado ("tag") en el Agent
-        (`settings.auron_agent_worker_id_field_id`, confirmado = "3658",
-        "Santander-Fields-Agent:PlatformAgentID"), y hay que localizarlo por
-        ese campo, no por ID directo.
+        (field "3658", "Santander-Fields-Agent:PlatformAgentID"), y hay que
+        localizarlo por ese campo, no por ID directo.
 
         Query confirmada por el equipo de Auron: tipo `[AIComponent]`, hijo
         de un `[Register]` (caso de uso) que cuelga del `[Engagement]` del
@@ -528,7 +527,7 @@ class AuronClient:
             "fields": {
                 "field": [
                     {
-                        "id": settings.auron_agent_worker_id_field_id,
+                        "id": "3658",
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": worker_id,

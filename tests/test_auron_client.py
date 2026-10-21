@@ -464,7 +464,7 @@ async def test_create_agent_posts_expected_payload(monkeypatch):
             "fields": {
                 "field": [
                     {
-                        "id": settings.auron_agent_worker_id_field_id,
+                        "id": "3658",
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": "W-1",

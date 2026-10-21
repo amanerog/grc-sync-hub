@@ -71,10 +71,6 @@ class Settings(BaseSettings):
 
     # Flujo 2: caso de uso generico para workers sin use_case_id
     generic_use_case_id: str
-    # Flujo 2: field id de la tag worker_id (campo personalizado del Agent,
-    # "Santander-Fields-Agent:PlatformAgentID"). Bloqueante historico de
-    # create_agent/get_agent_by_worker_id, ya resuelto.
-    auron_agent_worker_id_field_id: str = "3658"
     # typeDefinitionId del tipo "Agent" en OpenPages. Confirmado via dos
     # ejemplos reales independientes con el mismo valor (no se ha visto
     # variar por tenant Maisa/Noxus).
