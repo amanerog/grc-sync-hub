@@ -189,6 +189,9 @@ con dos diferencias puntuales:
   variable, opcional/sin valor por defecto) — no `maisa_organization_id`,
   que es el identificador propio de Maisa. **Sin confirmar** si Noxus tiene
   un concepto de "organizationId" equivalente al de Maisa, ni su valor real.
+  Mientras no esté seteada, Flujo 1 **no procesa Noxus** (ni su batch ni
+  sus fallos pendientes en `use_case_sync_failures`): la columna es
+  `NOT NULL` y cada caso de uso fallaría y se reintentaría en cada run.
 
 ### "Funcionalidad \* - Noxus" — tabla intermedia → Noxus
 

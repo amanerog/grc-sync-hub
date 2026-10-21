@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
+import pytest
+
 from sinc_amn.clients.auron_client import AuronClient
+from sinc_amn.config import settings
 from sinc_amn.models.use_case import UseCase
 from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
@@ -11,6 +14,12 @@ from sinc_amn.repositories.use_case_sync_failure_repository import (
     UseCaseSyncFailureRepository,
 )
 from sinc_amn.services.use_case_sync_service import UseCaseSyncService
+
+
+@pytest.fixture(autouse=True)
+def _noxus_enabled(monkeypatch):
+    # Noxus solo se procesa con organization_id (ver _enabled_tenants).
+    monkeypatch.setattr(settings, "noxus_organization_id", "test-noxus-org")
 
 
 def _use_case(**overrides) -> UseCase:
@@ -176,3 +185,22 @@ async def test_run_with_no_pending_failures_skips_retry():
     await service.run()
 
     auron.get_use_cases_by_resource_ids.assert_not_awaited()
+
+
+async def test_run_skips_noxus_without_organization_id(monkeypatch):
+    monkeypatch.setattr(settings, "noxus_organization_id", None)
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_cases.return_value = [_use_case(resource_id="RES-1", tenant="maisa")]
+    auron.get_use_cases_by_resource_ids.return_value = []
+    sync_failures = AsyncMock(spec=UseCaseSyncFailureRepository)
+    sync_failures.get_pending.return_value = [
+        {"resource_id": "RES-NOX", "tenant": "noxus"}
+    ]
+
+    service = _service(auron=auron, sync_failures=sync_failures)
+    summary = await service.run()
+
+    auron.get_use_cases.assert_awaited_once_with(tenants=["maisa"])
+    # Los fallos pendientes de Noxus tampoco se reintentan.
+    auron.get_use_cases_by_resource_ids.assert_not_awaited()
+    assert summary == {"total": 1, "succeeded": 1, "failed": 0}

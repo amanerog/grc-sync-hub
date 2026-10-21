@@ -16,6 +16,16 @@ logger = logging.getLogger(__name__)
 TENANTS = ["maisa", "noxus"]
 
 
+def _enabled_tenants() -> list[str]:
+    """Tenants que se procesan en este run.
+
+    Noxus solo si tiene `noxus_organization_id`: sin el, todo upsert en
+    `noxus_use_case_labels` falla por la restriccion NOT NULL de
+    `organization_id` (y los fallos se reintentarian en cada run).
+    """
+    return [t for t in TENANTS if t != "noxus" or settings.noxus_organization_id]
+
+
 class UseCaseSyncService:
     """Orquesta el Flujo 1: Auron/OpenPages -> Maisa/Noxus.
 
@@ -61,7 +71,7 @@ class UseCaseSyncService:
         hueco de que un item deje de caer dentro de la ventana de fecha
         antes de arreglarse (p.ej. al cruzar medianoche).
         """
-        use_cases = await self._auron.get_use_cases(tenants=TENANTS)
+        use_cases = await self._auron.get_use_cases(tenants=_enabled_tenants())
         results = [await self._sync_one(use_case) for use_case in use_cases]
 
         retried = await self._retry_pending_failures()
@@ -84,8 +94,11 @@ class UseCaseSyncService:
         if not pending:
             return []
 
+        enabled = _enabled_tenants()
         by_tenant: dict[str, list[str]] = {}
         for item in pending:
+            if item["tenant"] not in enabled:
+                continue
             by_tenant.setdefault(item["tenant"], []).append(item["resource_id"])
 
         results = []
