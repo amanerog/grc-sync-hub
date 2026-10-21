@@ -9,3 +9,6 @@ venv/
 .coverage
 coverage.xml
 reports/
+
+# MongoDB Database Tools (restauracion manual de dumps desde CloudShell)
+tools.tgz
