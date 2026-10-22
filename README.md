@@ -74,8 +74,19 @@ en orden: `0001_create_maisa_use_case_labels.sql`,
 `0005_add_owner_to_maisa_use_case_labels.sql`,
 `0006_create_noxus_use_case_labels.sql`,
 `0007_create_worker_sync_failures.sql`,
-`0008_add_model_id_to_worker_sync_failures.sql`) — aplicarlas contra la instancia de
+`0008_add_model_id_to_worker_sync_failures.sql`,
+`0009_create_workday_members.sql`) — aplicarlas contra la instancia de
 RDS Postgres antes de levantar el servicio.
+
+Flujo 2 necesita además los datos de Workday (`workday_members`) para
+elegir el caso de uso genérico de cada Business Entity. Se cargan desde el
+CSV con `scripts/load_reference_data.py`; el CSV llega por stdin, no se
+copia al pod ni se commitea (tiene datos personales). Cada carga sustituye
+entera la tabla:
+
+```
+kubectl exec -i -n <ns> <pod> -- python scripts/load_reference_data.py workday < miembros.csv
+```
 
 No commitear nunca valores reales de API key/token — son credenciales del
 IAM de IBM Cloud, rotables desde su consola si se filtran.

@@ -12,3 +12,6 @@ reports/
 
 # MongoDB Database Tools (restauracion manual de dumps desde CloudShell)
 tools.tgz
+
+# CSV de referencia (Workday tiene datos personales): se cargan por stdin, no se commitean
+*.csv

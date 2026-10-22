@@ -777,3 +777,30 @@ async def test_get_agent_by_worker_id_returns_none_when_not_found():
     assert "[Engagement].[Resource ID] = '15327'" in calls[0]["statement"]
 
     await http_client.aclose()
+
+
+async def test_get_use_case_id_by_name_searches_inside_tenant_engagement():
+    calls: list[dict] = []
+    rows = [{"fields": [{"name": "Resource ID", "value": "50001"}, {"name": "Name", "value": "x"}]}]
+    http_client = _agent_query_client(calls, rows)
+
+    use_case_id = await AuronClient(client=http_client).get_use_case_id_by_name(
+        "To be regularized - Maisa - HQ - Legal", "maisa"
+    )
+
+    assert use_case_id == "50001"
+    statement = calls[0]["statement"]
+    assert "FROM [Register]" in statement
+    assert "[Engagement].[Resource ID] = '11334'" in statement
+    assert "[Register].[Name] = 'To be regularized - Maisa - HQ - Legal'" in statement
+
+    await http_client.aclose()
+
+
+async def test_get_use_case_id_by_name_returns_none_when_not_found():
+    calls: list[dict] = []
+    http_client = _agent_query_client(calls, rows=[])
+
+    assert await AuronClient(client=http_client).get_use_case_id_by_name("x", "maisa") is None
+
+    await http_client.aclose()

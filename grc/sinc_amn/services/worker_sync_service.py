@@ -5,9 +5,13 @@ from sinc_amn.clients.auron_client import AuronClient
 from sinc_amn.clients.maisa_client import MaisaClient
 from sinc_amn.clients.noxus_client import NoxusClient
 from sinc_amn.config import settings
+from sinc_amn.core.business_entity import OTHER, business_entity_for
 from sinc_amn.core.monitoring import MonitoringStore
 from sinc_amn.core.notifications import AdminNotifier
 from sinc_amn.models.worker import Worker
+from sinc_amn.repositories.business_entity_repository import (
+    BusinessEntityRepository,
+)
 from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
 )
@@ -36,6 +40,7 @@ class WorkerSyncService:
         use_case_labels: UseCaseLabelRepository,
         noxus_use_case_labels: NoxusUseCaseLabelRepository,
         sync_failures: WorkerSyncFailureRepository,
+        business_entities: BusinessEntityRepository,
     ) -> None:
         self._auron = auron
         self._maisa = maisa
@@ -45,6 +50,9 @@ class WorkerSyncService:
         self._use_case_labels = use_case_labels
         self._noxus_use_case_labels = noxus_use_case_labels
         self._sync_failures = sync_failures
+        self._business_entities = business_entities
+        # Casos de uso genericos ya buscados en este run, por (tenant, nombre).
+        self._generic_use_cases: dict[tuple[str, str], str | None] = {}
 
     async def run(self, day: date | None = None) -> dict:
         """Ejecuta el Flujo 2 y devuelve un resumen `{total, succeeded, failed}`.
@@ -74,85 +82,96 @@ class WorkerSyncService:
             [await self._ingest_worker(worker) for worker in retried_workers]
         )
 
-        # None = omitido a proposito (ver _skip_reason), no cuenta como fallo.
         total = len(results)
-        succeeded = sum(1 for r in results if r is True)
-        failed = sum(1 for r in results if r is False)
-        skipped = total - succeeded - failed
+        succeeded = sum(results)
+        failed = total - succeeded
         logger.info(
             "worker_sync: procesados %d workers (D-1=%s, %d ok, %d fallidos, "
-            "%d omitidos, %d reintentos)",
+            "%d reintentos)",
             len(workers),
             target_day,
             succeeded,
             failed,
-            skipped,
             len(retried_workers),
         )
-        return {
-            "total": total,
-            "succeeded": succeeded,
-            "failed": failed,
-            "skipped": skipped,
-        }
+        return {"total": total, "succeeded": succeeded, "failed": failed}
 
-    async def _skip_reason(self, worker: Worker) -> str | None:
-        """Motivo para NO crear/actualizar el Agent de este worker, o None.
+    async def _resolve_use_case(self, worker: Worker) -> tuple[str, bool]:
+        """Caso de uso del que cuelga el Agent: `(use_case_id, es_generico)`.
 
-        Acordado para Maisa: el caso de uso sale del label
-        `<ResourceID>_<nombre>` (ver MaisaClient.get_updated_workers) y se
-        comprueba que existe en Auron; si no hay label con ese formato o el
-        caso de uso no existe, el worker no se crea - sin fallback al caso
-        de uso generico (que sigue aplicando a Noxus).
+        Maisa: el del label `<ResourceID>_<nombre>` (ver
+        MaisaClient.get_updated_workers) si existe en Auron. Si no hay label
+        o el caso de uso no existe, el generico de la Business Entity del
+        creador del agente: email -> datos de Workday -> BE
+        (`business_entity_for`) -> caso de uso llamado
+        `settings.auron_maisa_generic_use_case_name` en el Engagement de Maisa.
+        Si ese caso de uso no existe es un fallo del worker (se reintenta en
+        el siguiente run).
+
+        Noxus: su `use_case_id` o `settings.generic_use_case_id`.
         """
         if worker.tenant != "maisa":
-            return None
-        if worker.use_case_id is None:
-            return "sin label <ResourceID>_<nombre>"
-        found = await self._auron.get_use_cases_by_resource_ids(
+            if worker.use_case_id:
+                return worker.use_case_id, False
+            return settings.generic_use_case_id, True
+
+        if worker.use_case_id and await self._auron.get_use_cases_by_resource_ids(
             [worker.use_case_id], worker.tenant
+        ):
+            return worker.use_case_id, False
+
+        member = (
+            await self._business_entities.get_member(worker.agent_owner)
+            if worker.agent_owner
+            else None
         )
-        if not found:
-            return f"caso de uso {worker.use_case_id} no existe en Auron"
-        return None
+        business_entity = business_entity_for(member)
+        if business_entity == OTHER:
+            business_entity = settings.auron_other_business_entity
+        name = settings.auron_maisa_generic_use_case_name.format(
+            business_entity=business_entity
+        )
+        key = (worker.tenant, name)
+        if key not in self._generic_use_cases:
+            self._generic_use_cases[key] = await self._auron.get_use_case_id_by_name(
+                name, worker.tenant
+            )
+        use_case_id = self._generic_use_cases[key]
+        if use_case_id is None:
+            raise LookupError(
+                f"no existe el caso de uso generico {name!r} en Auron "
+                f"(tenant {worker.tenant})"
+            )
+        logger.info(
+            "worker_sync: worker %s sin caso de uso valido (label: %s) -> "
+            "generico %s de la BE %r",
+            worker.worker_id,
+            worker.use_case_id,
+            use_case_id,
+            business_entity,
+        )
+        return use_case_id, True
 
-    async def _ingest_worker(self, worker: Worker) -> bool | None:
+    async def _ingest_worker(self, worker: Worker) -> bool:
         """Ingesta un worker de forma aislada: nunca propaga un fallo, lo
-        registra (log + intento de MonitoringStore) y devuelve False. None si
-        se omite a proposito (ver `_skip_reason`).
+        registra (log + intento de MonitoringStore) y devuelve False.
         """
-        try:
-            skip_reason = await self._skip_reason(worker)
-        except Exception as exc:
-            logger.exception(
-                "worker_sync: fallo validando el caso de uso de %s", worker.worker_id
-            )
-            await self._track_result(worker, succeeded=False, error=str(exc))
-            return False
-        if skip_reason:
-            logger.info(
-                "worker_sync: worker %s omitido (%s)", worker.worker_id, skip_reason
-            )
-            # Si venia de un fallo anterior, deja de reintentarse.
-            await self._track_result(worker, succeeded=True)
-            return None
-
         # 3A/3B-5A/5B: alta/actualizacion del agente, con la tag worker_id y
         # el enlace al caso de uso incluidos en el mismo payload de creacion
         # (confirmado: primaryParentId, sin llamada de asociacion aparte
-        # para el alta). workspace_id no es un dato del Agent (vive en el
-        # propio caso de uso, solo Noxus - Maisa no tiene workspace_id
-        # asociado), asi que no se le pasa aqui.
-        # Si el Agent ya existe pero con otro caso de uso vinculado, no se
-        # puede reasignar via update_agent (confirmado) - hay que borrar la
-        # asociacion vieja y crear la nueva, ver rama mas abajo.
+        # para el alta). workspace_id no es un dato del Agent, asi que no se
+        # le pasa aqui.
+        # Si el Agent ya existe pero con otro caso de uso vinculado (p.ej.
+        # estaba en el generico y ya tiene label), no se puede reasignar via
+        # update_agent (confirmado) - hay que borrar la asociacion vieja y
+        # crear la nueva, ver rama mas abajo.
         agent: dict | None = None
-        had_use_case = worker.use_case_id is not None
-        use_case_id = worker.use_case_id or settings.generic_use_case_id
+        use_case_id = worker.use_case_id or ""
 
         status = "success"
         error_message = ""
         try:
+            use_case_id, is_generic = await self._resolve_use_case(worker)
             agent = await self._auron.get_agent_by_worker_id(
                 worker.worker_id, worker.tenant
             )
@@ -222,7 +241,7 @@ class WorkerSyncService:
                     provider_version_id=worker.provider_version_id,
                 )
 
-            if not had_use_case:
+            if is_generic:
                 # 7A: ademas del fallback generico, se notifica al admin del
                 # workspace para que lo regularice.
                 await self._notifier.notify_pending_regularization(

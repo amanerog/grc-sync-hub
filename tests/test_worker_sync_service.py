@@ -11,6 +11,10 @@ from sinc_amn.core.notifications import AdminNotifier
 from sinc_amn.models.noxus_use_case_label import NoxusUseCaseLabel
 from sinc_amn.models.use_case_label import UseCaseLabel
 from sinc_amn.models.worker import Worker
+from sinc_amn.models.workday_member import WorkdayMember
+from sinc_amn.repositories.business_entity_repository import (
+    BusinessEntityRepository,
+)
 from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
 )
@@ -39,6 +43,7 @@ def _worker(**overrides) -> Worker:
 def _service(
     auron=None, maisa=None, noxus=None, monitoring=None, notifier=None,
     use_case_labels=None, noxus_use_case_labels=None, sync_failures=None,
+    business_entities=None,
 ):
     if use_case_labels is None:
         # Por defecto no hay owner en la tabla intermedia (los tests que lo
@@ -51,6 +56,10 @@ def _service(
     if sync_failures is None:
         sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
         sync_failures.get_pending.return_value = []
+    if business_entities is None:
+        # Por defecto el creador no esta en Workday (BE "Other").
+        business_entities = AsyncMock(spec=BusinessEntityRepository)
+        business_entities.get_member.return_value = None
     return WorkerSyncService(
         auron=auron or AsyncMock(spec=AuronClient),
         maisa=maisa or AsyncMock(spec=MaisaClient),
@@ -60,6 +69,7 @@ def _service(
         use_case_labels=use_case_labels,
         noxus_use_case_labels=noxus_use_case_labels,
         sync_failures=sync_failures,
+        business_entities=business_entities,
     )
 
 
@@ -94,7 +104,7 @@ async def test_run_combines_maisa_and_noxus_workers_and_updates_existing_agent()
     auron.dissociate.assert_not_awaited()
     auron.associate.assert_not_awaited()
     monitoring.record.assert_awaited_once()
-    assert summary == {"total": 1, "succeeded": 1, "failed": 0, "skipped": 0}
+    assert summary == {"total": 1, "succeeded": 1, "failed": 0}
 
 
 async def test_ingest_worker_reassociates_when_use_case_changed():
@@ -355,7 +365,7 @@ async def test_run_isolates_failure_and_keeps_processing_rest_of_batch():
         agent_owner="agent-owner@example.com",
         provider_version_id=None,
     )
-    assert summary == {"total": 2, "succeeded": 1, "failed": 1, "skipped": 0}
+    assert summary == {"total": 2, "succeeded": 1, "failed": 1}
 
 
 async def test_run_retries_pending_worker_failures():
@@ -386,7 +396,7 @@ async def test_run_retries_pending_worker_failures():
         provider_version_id=None,
     )
     sync_failures.mark_resolved.assert_awaited_once_with("W-OLD")
-    assert summary == {"total": 1, "succeeded": 1, "failed": 0, "skipped": 0}
+    assert summary == {"total": 1, "succeeded": 1, "failed": 0}
 
 
 async def test_run_with_no_pending_worker_failures_skips_retry():
@@ -400,7 +410,7 @@ async def test_run_with_no_pending_worker_failures_skips_retry():
     service = _service(maisa=maisa, noxus=noxus, sync_failures=sync_failures)
     summary = await service.run()
 
-    assert summary == {"total": 0, "succeeded": 0, "failed": 0, "skipped": 0}
+    assert summary == {"total": 0, "succeeded": 0, "failed": 0}
 
 
 async def test_ingest_worker_creates_agent_and_notifies_when_use_case_missing():
@@ -518,30 +528,108 @@ async def test_ingest_worker_isolates_sync_failures_tracking_error_too():
     assert ok is True
 
 
-async def test_ingest_worker_skips_maisa_worker_without_use_case_label():
+async def test_ingest_worker_uses_business_entity_generic_when_maisa_label_missing():
+    worker = _worker(use_case_id=None)
     auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+    business_entities = AsyncMock(spec=BusinessEntityRepository)
+    business_entities.get_member.return_value = WorkdayMember(
+        email="agent-owner@example.com",
+        business_unit="HQ",
+        position_level_2="Global & Corporate HQ",
+        functional_group_1="Internal Audit",
+    )
+    auron.get_use_case_id_by_name.return_value = "GEN-AUDIT"
+    notifier = AsyncMock(spec=AdminNotifier)
+
+    service = _service(
+        auron=auron, notifier=notifier, business_entities=business_entities
+    )
+    ok = await service._ingest_worker(worker)
+
+    assert ok is True
+    business_entities.get_member.assert_awaited_once_with("agent-owner@example.com")
+    auron.get_use_case_id_by_name.assert_awaited_once_with(
+        "To be regularized - Maisa - HQ - Auditory", "maisa"
+    )
+    _, kwargs = auron.create_agent.await_args
+    assert kwargs["use_case_id"] == "GEN-AUDIT"
+    notifier.notify_pending_regularization.assert_awaited_once_with(
+        workspace_id="WS-1", worker_id="W-1"
+    )
+
+
+async def test_ingest_worker_uses_generic_when_maisa_use_case_not_in_auron():
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_cases_by_resource_ids.return_value = []
+    auron.get_use_case_id_by_name.return_value = "GEN-HQ-OTHERS"
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+
+    service = _service(auron=auron)
+    ok = await service._ingest_worker(_worker(use_case_id="559"))
+
+    assert ok is True
+    auron.get_use_cases_by_resource_ids.assert_awaited_once_with(["559"], "maisa")
+    # Creador sin datos en Workday -> "Other" -> HQ - Others (PRE).
+    auron.get_use_case_id_by_name.assert_awaited_once_with(
+        "To be regularized - Maisa - HQ - Others", "maisa"
+    )
+    _, kwargs = auron.create_agent.await_args
+    assert kwargs["use_case_id"] == "GEN-HQ-OTHERS"
+
+
+async def test_run_looks_up_each_generic_use_case_once_per_run():
+    maisa = AsyncMock(spec=MaisaClient)
+    maisa.get_updated_workers.return_value = [
+        _worker(worker_id="W-1", use_case_id=None),
+        _worker(worker_id="W-2", use_case_id=None),
+    ]
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_case_id_by_name.return_value = "GEN-HQ-OTHERS"
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+
+    service = _service(auron=auron, maisa=maisa)
+    summary = await service.run()
+
+    assert summary["succeeded"] == 2
+    auron.get_use_case_id_by_name.assert_awaited_once()
+
+
+async def test_ingest_worker_moves_agent_from_generic_once_label_exists():
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = {
+        "id": "agent-1",
+        "primaryParentId": "GEN-OTHER",
+    }
+    auron.update_agent.return_value = {"id": "agent-1"}
+    notifier = AsyncMock(spec=AdminNotifier)
+
+    service = _service(auron=auron, notifier=notifier)
+    ok = await service._ingest_worker(_worker(use_case_id="559"))
+
+    assert ok is True
+    auron.dissociate.assert_awaited_once_with("agent-1", "GEN-OTHER")
+    auron.associate.assert_awaited_once_with(
+        "agent-1", "559", association_definition_id="966", association_type="PARENT"
+    )
+    notifier.notify_pending_regularization.assert_not_awaited()
+
+
+async def test_ingest_worker_fails_when_generic_use_case_does_not_exist():
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_case_id_by_name.return_value = None
     sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
 
     service = _service(auron=auron, sync_failures=sync_failures)
-    result = await service._ingest_worker(_worker(use_case_id=None))
+    ok = await service._ingest_worker(_worker(use_case_id=None))
 
-    assert result is None
-    auron.get_agent_by_worker_id.assert_not_awaited()
+    assert ok is False
     auron.create_agent.assert_not_awaited()
-    # Deja de reintentarse si venia de un fallo anterior.
-    sync_failures.mark_resolved.assert_awaited_once_with("W-1")
-
-
-async def test_ingest_worker_skips_maisa_worker_when_use_case_not_in_auron():
-    auron = AsyncMock(spec=AuronClient)
-    auron.get_use_cases_by_resource_ids.return_value = []
-
-    service = _service(auron=auron)
-    result = await service._ingest_worker(_worker(use_case_id="559"))
-
-    assert result is None
-    auron.get_use_cases_by_resource_ids.assert_awaited_once_with(["559"], "maisa")
-    auron.create_agent.assert_not_awaited()
+    _, error = sync_failures.record_failure.await_args.args
+    assert "To be regularized - Maisa - HQ - Others" in error
 
 
 async def test_ingest_worker_counts_use_case_lookup_error_as_failure():
@@ -550,24 +638,23 @@ async def test_ingest_worker_counts_use_case_lookup_error_as_failure():
     sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
 
     service = _service(auron=auron, sync_failures=sync_failures)
-    result = await service._ingest_worker(_worker(use_case_id="559"))
+    ok = await service._ingest_worker(_worker(use_case_id="559"))
 
-    assert result is False
+    assert ok is False
     sync_failures.record_failure.assert_awaited_once()
     auron.create_agent.assert_not_awaited()
 
 
-async def test_run_counts_skipped_workers_and_ignores_noxus_when_disabled(monkeypatch):
+async def test_run_ignores_noxus_when_disabled(monkeypatch):
     monkeypatch.setattr(settings, "noxus_workers_enabled", False)
     maisa = AsyncMock(spec=MaisaClient)
-    maisa.get_updated_workers.return_value = [_worker(use_case_id=None)]
+    maisa.get_updated_workers.return_value = []
     noxus = AsyncMock(spec=NoxusClient)
 
     service = _service(maisa=maisa, noxus=noxus)
-    summary = await service.run()
+    await service.run()
 
     noxus.get_updated_workers.assert_not_awaited()
-    assert summary == {"total": 1, "succeeded": 0, "failed": 0, "skipped": 1}
 
 
 async def test_run_includes_noxus_workers_when_enabled(monkeypatch):

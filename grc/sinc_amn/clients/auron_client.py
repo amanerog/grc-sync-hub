@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from datetime import date, datetime, timedelta
 
@@ -6,6 +7,8 @@ import httpx
 
 from sinc_amn.config import settings
 from sinc_amn.models.use_case import UseCase
+
+logger = logging.getLogger(__name__)
 
 # Query API de OpenPages GRC v2 (POST {auron_base_url}/opgrc/api/v2/query),
 # confirmada con el equipo de Auron. La respuesta pagina via "offset"/"limit"
@@ -395,6 +398,35 @@ class AuronClient:
             ],
         )
         response.raise_for_status()
+
+    async def get_use_case_id_by_name(self, name: str, tenant: str) -> str | None:
+        """Resource ID del caso de uso con ese nombre exacto dentro del
+        Engagement del tenant, o None.
+
+        Para los casos de uso genericos de cada Business Entity. Buscar solo
+        dentro del Engagement garantiza que `get_agent_by_worker_id`
+        encuentra despues los Agents que cuelgan de el (si no, se volverian
+        a crear en cada run).
+        """
+        statement = (
+            "SELECT [Register].[Resource ID], [Register].[Name] "
+            "FROM [Register] "
+            "JOIN [Engagement] ON PARENT([Register]) "
+            f"WHERE ([Engagement].[Resource ID] = '{_escape_sql_literal(_ai_solution_id(tenant))}' "
+            f"AND [Register].[Name] = '{_escape_sql_literal(name)}')"
+        )
+        headers = await self._auth_headers()
+        rows = await self._paginate_query(statement, headers)
+        if not rows:
+            return None
+        if len(rows) > 1:
+            logger.warning(
+                "auron: %d casos de uso llamados %r en el tenant %s, se usa el primero",
+                len(rows),
+                name,
+                tenant,
+            )
+        return rows[0]["fields"][0].get("value")
 
     async def get_agent_by_worker_id(self, worker_id: str, tenant: str) -> dict | None:
         """Busca el Agent en OpenPages cuya tag worker_id coincide, o None.

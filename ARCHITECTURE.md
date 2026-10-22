@@ -321,9 +321,23 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      - **Caso de uso:** `worker_manager.label_ids` → `label.name`, con
        formato acordado `<ResourceID>_<nombre>`; el prefijo numérico es el
        Resource ID del caso de uso. **Si no hay label con ese formato o el
-       caso de uso no existe en Auron, el worker no se crea** (se omite,
-       no es fallo; sin fallback al caso de uso genérico para Maisa —
-       `WorkerSyncService._skip_reason`).
+       caso de uso no existe en Auron, el Agent se cuelga del caso de uso
+       genérico de la Business Entity (BE) de su creador**
+       (`WorkerSyncService._resolve_use_case`):
+       email del creador → datos de Workday (`workday_members`) → BE con
+       el árbol de decisión de Auron (`core/business_entity.py`) → caso
+       de uso llamado `settings.auron_maisa_generic_use_case_name` (`To be
+       regularized - Maisa - {business_entity}`), creado a mano por Auron uno
+       por BE y buscado por nombre dentro del Engagement del tenant
+       (`AuronClient.get_use_case_id_by_name`, cacheado por run). Creador
+       sin datos en Workday o sin mapeo → BE "Other", que se sustituye por
+       `settings.auron_other_business_entity` (`HQ - Others`: en PRE no
+       existe "Other"). Si el caso de uso genérico no existe es un fallo
+       del worker y se reintenta. Cuando el worker llega después con su
+       label, el Agent se reasocia al caso de uso correcto (`dissociate` +
+       `associate`). `workday_members` se carga con
+       `scripts/load_reference_data.py`. Pendiente: el envío real de la
+       notificación 7A (hoy solo deja un aviso en el log).
      - Owner del Agent: `user.email` del `user_id` =
        `worker_manager.worker_manager_user`.
    - `1B` `NoxusClient.get_updated_workers(day)` — GET REST API a Noxus: workspaces
@@ -557,7 +571,8 @@ sinc_amn/
 │   ├── 0005_add_owner_to_maisa_use_case_labels.sql
 │   ├── 0006_create_noxus_use_case_labels.sql
 │   ├── 0007_create_worker_sync_failures.sql
-│   └── 0008_add_model_id_to_worker_sync_failures.sql
+│   ├── 0008_add_model_id_to_worker_sync_failures.sql
+│   └── 0009_create_workday_members.sql
 └── tests/
 ```
 

@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     # falta el de PRO - sobreescribir al desplegar en ese entorno.
     auron_maisa_ai_solution_id: str = "11334"
     auron_noxus_ai_solution_id: str = "15327"
+    # Flujo 2 (Maisa): caso de uso generico de cada Business Entity (creado
+    # a mano por Auron dentro del Engagement de Maisa), que se busca por
+    # nombre.
+    auron_maisa_generic_use_case_name: str = "To be regularized - Maisa - {business_entity}"
+    # BE que se usa cuando el arbol de decision da "Other" (sin mapeo o
+    # creador sin datos en Workday). En PRE no existe "Other" (default).
+    auron_other_business_entity: str = "HQ - Others"
     # Field "3405" ("Identifier of the cloud account... en Development").
     # Confirmado que va en el caso de uso, no en el Agent - sin uso hasta
     # implementar el PUT al caso de uso de Flujo 2. Pendiente de confirmar

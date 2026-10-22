@@ -8,6 +8,9 @@ from sinc_amn.clients.noxus_client import NoxusClient
 from sinc_amn.core.monitoring import MonitoringStore
 from sinc_amn.core.notifications import AdminNotifier
 from sinc_amn.db.pool import get_pool
+from sinc_amn.repositories.business_entity_repository import (
+    BusinessEntityRepository,
+)
 from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
 )
@@ -39,6 +42,7 @@ async def sync_workers(response: Response, day: date | None = None) -> dict:
         use_case_labels=UseCaseLabelRepository(get_pool()),
         noxus_use_case_labels=NoxusUseCaseLabelRepository(get_pool()),
         sync_failures=WorkerSyncFailureRepository(get_pool()),
+        business_entities=BusinessEntityRepository(get_pool()),
     )
     summary = await service.run(day=day)
     response.status_code = 202 if summary["failed"] == 0 else 207

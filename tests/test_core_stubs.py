@@ -15,10 +15,9 @@ async def test_checkpoint_store_is_not_implemented():
         await store.set_last_checkpoint(datetime.now(timezone.utc))
 
 
-async def test_admin_notifier_is_not_implemented():
+async def test_admin_notifier_only_logs_until_implemented(caplog):
     notifier = AdminNotifier()
 
-    with pytest.raises(NotImplementedError):
-        await notifier.notify_pending_regularization(
-            workspace_id="WS-1", worker_id="W-1"
-        )
+    await notifier.notify_pending_regularization(workspace_id="WS-1", worker_id="W-1")
+
+    assert "W-1" in caplog.text
