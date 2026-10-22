@@ -443,7 +443,6 @@ class AuronClient:
         use_case_owner: str | None,
         agent_owner: str | None,
         provider_version_id: str | None,
-        model_id: str | None = None,
     ) -> dict:
         """Da de alta un nuevo Agent en OpenPages y lo enlaza al caso de uso.
 
@@ -480,7 +479,7 @@ class AuronClient:
         vacio, simplemente no se incluye esa clave en el payload (no se
         envia `None`/cadena vacia a OpenPages).
 
-        Los 5 campos personalizados confirmados por ese mismo ejemplo real:
+        Campos personalizados del Agent:
         - `"3658"` ("Santander-Fields-Agent:PlatformAgentID", worker_id, tag
           de busqueda) - unico ya resuelto del todo.
         - `"3261"` ("Santander Fields:Owner") = `use_case_owner` - Owner del
@@ -497,16 +496,10 @@ class AuronClient:
           **resuelto**: confirmado que viene de Maisa/Noxus al sincronizar
           (`worker.provider_version_id`, ver `models/worker.py`), igual que
           `agent_name`/`agent_description`.
-        - `"3405"` ("Identifier of the cloud account... en Development") -
-          **resuelto**: confirmado que NO es un dato de Maisa/Noxus, sino el
-          AWS account ID donde corre el propio microservicio
-          (`settings.aws_account_id`) - inyectado por el pipeline de
-          despliegue (fijo por entidad/entorno), no se resuelve via AWS SDK
-          en tiempo de ejecucion. Por eso no es parametro de este metodo.
 
-        Ademas, `"3408"` ("Santander Fields:API ID") = `model_id`, el modelo
-        LLM del worker. Opcional: si llega vacio no se envia (igual que
-        `description`), para no borrar un valor puesto a mano en OpenPages.
+        Confirmado (equipo Auron/IBM): `"3405"` (cuenta cloud) y `"3408"`
+        (API ID / modelo LLM) NO van en el Agent sino en el caso de uso -
+        ese PUT al caso de uso esta pendiente (ver ARCHITECTURE.md).
 
         Confirmado (equipo Auron/IBM): el caso de uso vinculado
         (`primaryParentId`) NO se puede cambiar en un `update_agent` -
@@ -555,18 +548,11 @@ class AuronClient:
                         "hasChanged": True,
                         "value": provider_version_id,
                     },
-                    {
-                        "id": "3405",
-                        "dataType": "STRING_TYPE",
-                        "hasChanged": True,
-                        "value": settings.aws_account_id,
-                    },
                 ]
             },
         }
         if description:
             payload["description"] = description
-        _append_model_field(payload, model_id)
 
         return await self.create_content(payload)
 
@@ -579,7 +565,6 @@ class AuronClient:
         use_case_owner: str | None,
         agent_owner: str | None,
         provider_version_id: str | None,
-        model_id: str | None = None,
     ) -> dict:
         """Actualiza los campos de un Agent existente en OpenPages (name,
         description, y los 5 campos personalizados - ver `create_agent`).
@@ -642,30 +627,11 @@ class AuronClient:
                         "hasChanged": True,
                         "value": provider_version_id,
                     },
-                    {
-                        "id": "3405",
-                        "dataType": "STRING_TYPE",
-                        "hasChanged": True,
-                        "value": settings.aws_account_id,
-                    },
                 ]
             },
         }
         if description:
             payload["description"] = description
-        _append_model_field(payload, model_id)
 
         return await self.update_content(agent_id, payload)
 
-
-def _append_model_field(payload: dict, model_id: str | None) -> None:
-    """Field "3408" (Santander Fields:API ID) solo si hay modelo."""
-    if model_id:
-        payload["fields"]["field"].append(
-            {
-                "id": "3408",
-                "dataType": "STRING_TYPE",
-                "hasChanged": True,
-                "value": model_id,
-            }
-        )

@@ -438,13 +438,14 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      owner del propio Agent, recuperado de Maisa/Noxus, distinto del owner
      del Use Case), `"3290"` ("Version id of the provider" =
      `worker.provider_version_id`, **ya resuelto**: dato de Maisa/Noxus,
-     `Worker` ya lo trae) y `"3405"` ("Identifier of the cloud account...
-     Development", **ya resuelto**: no es un dato de Maisa/Noxus, es
-     `settings.aws_account_id` — la cuenta AWS donde corre el propio
-     microservicio, inyectada por el pipeline de despliegue). Además,
-     `"3408"` ("Santander Fields:API ID" = `worker.model_id`, el modelo LLM
-     de la versión DEPLOYED — en Maisa `worker.model.name`); opcional, si
-     no hay modelo no se envía.
+     `Worker` ya lo trae). **`"3405"` (cuenta cloud,
+     `settings.aws_account_id`) y `"3408"` ("Santander Fields:API ID" =
+     `worker.model_id`, en Maisa `worker.model.name` de la versión
+     DEPLOYED) NO van en el Agent** (confirmado por Auron): van en un PUT
+     al caso de uso junto con `"3601"` (Initiative = workspace de
+     Maisa/Noxus), **pendiente de implementar**. `Worker.model_id` ya se
+     extrae y se guarda en `worker_sync_failures` (migración 0008) para
+     cuando se implemente.
    - **El caso de uso genérico ya no sería un ID fijo simple — pero el
      diseño exacto está otra vez sin confirmar a nivel funcional** (se
      había dado por bueno "uno distinto por `(tenant, consumerId)`", con
@@ -647,9 +648,8 @@ repositorio — ver sección "Despliegue en EKS" más arriba.)
 - **Endpoints genéricos de OpenPages**: creación (`AuronClient
   .create_content`) y asociación (`AuronClient.associate`), field id de
   `worker_id` (`"3658"`) y `typeDefinitionId` del Agent (`"156"`).
-- **`create_agent` completo**: campos "3290"
-  (`worker.provider_version_id`) y "3405" (`settings.aws_account_id`)
-  resueltos; manejo de `None` implementado (`name`/`agent_owner`/
+- **`create_agent` completo**: campo "3290"
+  (`worker.provider_version_id`) resuelto; manejo de `None` implementado (`name`/`agent_owner`/
   `provider_version_id` obligatorios → `ValueError`, aislado como
   cualquier otro fallo; `description` opcional → se omite del payload).
 - **Tabla intermedia de Noxus** (`noxus_use_case_labels`): mismo diseño

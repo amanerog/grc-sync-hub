@@ -91,11 +91,10 @@ class Settings(BaseSettings):
     # falta el de PRO - sobreescribir al desplegar en ese entorno.
     auron_maisa_ai_solution_id: str = "11334"
     auron_noxus_ai_solution_id: str = "15327"
-    # Flujo 2: field "3405" ("Identifier of the cloud account... en
-    # Development") de create_agent - confirmado que es el AWS account ID
-    # donde corre el propio microservicio, no un dato de Maisa/Noxus.
-    # Inyectado por el pipeline de despliegue (fijo por entidad/entorno, no
-    # se resuelve en tiempo de ejecucion via AWS SDK).
+    # Field "3405" ("Identifier of the cloud account... en Development").
+    # Confirmado que va en el caso de uso, no en el Agent - sin uso hasta
+    # implementar el PUT al caso de uso de Flujo 2. Pendiente de confirmar
+    # si es la cuenta del microservicio o la del proveedor (Maisa/Noxus).
     aws_account_id: str | None = None
 
     # Flujo 1: backend de checkpoint (pendiente de decidir: dynamodb/rds/configmap)

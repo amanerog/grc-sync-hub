@@ -196,7 +196,6 @@ class WorkerSyncService:
                     use_case_owner=use_case_owner,
                     agent_owner=worker.agent_owner,
                     provider_version_id=worker.provider_version_id,
-                    model_id=worker.model_id,
                 )
             else:
                 old_use_case_id = agent.get("primaryParentId")
@@ -221,7 +220,6 @@ class WorkerSyncService:
                     use_case_owner=use_case_owner,
                     agent_owner=worker.agent_owner,
                     provider_version_id=worker.provider_version_id,
-                    model_id=worker.model_id,
                 )
 
             if not had_use_case:

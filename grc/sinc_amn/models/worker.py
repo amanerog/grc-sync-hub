@@ -29,11 +29,11 @@ class Worker(BaseModel):
     # Opcional porque get_updated_workers sigue sin implementar - no
     # confirmado si el proveedor lo da siempre relleno.
     provider_version_id: str | None = None
-    # "Santander Fields:API ID" (field "3408") - id tecnico del modelo LLM
-    # de la version desplegada (Maisa: `worker.model.name`). Opcional: hay
-    # versiones sin modelo.
+    # Id tecnico del modelo LLM de la version desplegada (Maisa:
+    # `worker.model.name`). Opcional: hay versiones sin modelo. Destino:
+    # field "3408" (Santander Fields:API ID) del caso de uso, no del Agent -
+    # sin enviar hasta implementar el PUT al caso de uso.
     model_id: str | None = None
     # TODO: completar con el resto de campos del contrato real de Maisa/Noxus,
-    # si aparecen mas al confirmarlo. El otro campo pendiente de
-    # AuronClient.create_agent (field "3405", cuenta cloud) NO es un dato de
-    # Worker - resuelto como settings.aws_account_id (ver config.py).
+    # si aparecen mas al confirmarlo. El field "3405" (cuenta cloud, en el
+    # caso de uso) NO es un dato de Worker - settings.aws_account_id.
