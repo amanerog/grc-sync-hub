@@ -443,6 +443,7 @@ class AuronClient:
         use_case_owner: str | None,
         agent_owner: str | None,
         provider_version_id: str | None,
+        model_id: str | None = None,
     ) -> dict:
         """Da de alta un nuevo Agent en OpenPages y lo enlaza al caso de uso.
 
@@ -503,6 +504,10 @@ class AuronClient:
           despliegue (fijo por entidad/entorno), no se resuelve via AWS SDK
           en tiempo de ejecucion. Por eso no es parametro de este metodo.
 
+        Ademas, `"3408"` ("Santander Fields:API ID") = `model_id`, el modelo
+        LLM del worker. Opcional: si llega vacio no se envia (igual que
+        `description`), para no borrar un valor puesto a mano en OpenPages.
+
         Confirmado (equipo Auron/IBM): el caso de uso vinculado
         (`primaryParentId`) NO se puede cambiar en un `update_agent` -
         cuando cambia, hay que borrar la asociacion existente
@@ -561,6 +566,7 @@ class AuronClient:
         }
         if description:
             payload["description"] = description
+        _append_model_field(payload, model_id)
 
         return await self.create_content(payload)
 
@@ -573,6 +579,7 @@ class AuronClient:
         use_case_owner: str | None,
         agent_owner: str | None,
         provider_version_id: str | None,
+        model_id: str | None = None,
     ) -> dict:
         """Actualiza los campos de un Agent existente en OpenPages (name,
         description, y los 5 campos personalizados - ver `create_agent`).
@@ -646,5 +653,19 @@ class AuronClient:
         }
         if description:
             payload["description"] = description
+        _append_model_field(payload, model_id)
 
         return await self.update_content(agent_id, payload)
+
+
+def _append_model_field(payload: dict, model_id: str | None) -> None:
+    """Field "3408" (Santander Fields:API ID) solo si hay modelo."""
+    if model_id:
+        payload["fields"]["field"].append(
+            {
+                "id": "3408",
+                "dataType": "STRING_TYPE",
+                "hasChanged": True,
+                "value": model_id,
+            }
+        )

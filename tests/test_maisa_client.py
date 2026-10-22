@@ -119,7 +119,10 @@ async def test_get_updated_workers_maps_worker_manager_to_worker():
     mongo = _fake_mongo(
         worker=[
             _version("WM1", 1, "DRAFT", datetime(2026, 9, 1)),
-            _version("WM1", 2, "DEPLOYED", datetime(2026, 9, 2)),
+            _version(
+                "WM1", 2, "DEPLOYED", datetime(2026, 9, 2),
+                model={"name": "eu.anthropic.claude-opus-4-5", "displayName": "[Bedrock] Claude Opus 4.5"},
+            ),
             # El cambio de D-1 es en un draft: el agente se sincroniza igual,
             # con la version DEPLOYED mas alta.
             _version("WM1", 3, "DRAFT", datetime(2026, 10, 18, 9, 30)),
@@ -141,6 +144,7 @@ async def test_get_updated_workers_maps_worker_manager_to_worker():
     assert w.agent_name == "Agente WM1"
     assert w.agent_owner == "owner@example.com"
     assert w.provider_version_id == "2"
+    assert w.model_id == "eu.anthropic.claude-opus-4-5"
 
 
 async def test_get_updated_workers_filters_out_non_matching_agents():

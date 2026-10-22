@@ -690,6 +690,53 @@ async def test_update_agent_omits_description_when_missing():
     await http_client.aclose()
 
 
+async def test_create_agent_sends_model_id_as_field_3408():
+    captured: list[dict] = []
+    http_client = _make_create_content_client(captured)
+    auron = AuronClient(client=http_client)
+
+    await auron.create_agent(
+        worker_id="W-1",
+        use_case_id="UC-1",
+        tenant="maisa",
+        name="Agente de prueba",
+        description=None,
+        use_case_owner=None,
+        agent_owner="agent-owner@example.com",
+        provider_version_id="v1.0",
+        model_id="eu.anthropic.claude-opus-4-5",
+    )
+
+    assert captured[0]["fields"]["field"][-1] == {
+        "id": "3408",
+        "dataType": "STRING_TYPE",
+        "hasChanged": True,
+        "value": "eu.anthropic.claude-opus-4-5",
+    }
+    await http_client.aclose()
+
+
+async def test_update_agent_omits_field_3408_without_model_id():
+    captured: list[tuple[str, dict]] = []
+    http_client = _make_update_content_client(captured)
+    auron = AuronClient(client=http_client)
+
+    await auron.update_agent(
+        agent_id="35378",
+        tenant="maisa",
+        name="Agente de prueba",
+        description=None,
+        use_case_owner=None,
+        agent_owner="agent-owner@example.com",
+        provider_version_id="v1.0",
+        model_id=None,
+    )
+
+    _, payload = captured[0]
+    assert "3408" not in [f["id"] for f in payload["fields"]["field"]]
+    await http_client.aclose()
+
+
 async def test_update_agent_raises_when_name_missing():
     http_client = httpx.AsyncClient(base_url=settings.auron_base_url)
     auron = AuronClient(client=http_client)

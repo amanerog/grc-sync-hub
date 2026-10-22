@@ -441,7 +441,10 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      `Worker` ya lo trae) y `"3405"` ("Identifier of the cloud account...
      Development", **ya resuelto**: no es un dato de Maisa/Noxus, es
      `settings.aws_account_id` — la cuenta AWS donde corre el propio
-     microservicio, inyectada por el pipeline de despliegue).
+     microservicio, inyectada por el pipeline de despliegue). Además,
+     `"3408"` ("Santander Fields:API ID" = `worker.model_id`, el modelo LLM
+     de la versión DEPLOYED — en Maisa `worker.model.name`); opcional, si
+     no hay modelo no se envía.
    - **El caso de uso genérico ya no sería un ID fijo simple — pero el
      diseño exacto está otra vez sin confirmar a nivel funcional** (se
      había dado por bueno "uno distinto por `(tenant, consumerId)`", con
@@ -552,7 +555,8 @@ sinc_amn/
 │   ├── 0004_create_use_case_sync_failures.sql
 │   ├── 0005_add_owner_to_maisa_use_case_labels.sql
 │   ├── 0006_create_noxus_use_case_labels.sql
-│   └── 0007_create_worker_sync_failures.sql
+│   ├── 0007_create_worker_sync_failures.sql
+│   └── 0008_add_model_id_to_worker_sync_failures.sql
 └── tests/
 ```
 

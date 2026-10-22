@@ -73,6 +73,8 @@ class MaisaClient:
           formato -> `use_case_id=None` (WorkerSyncService no lo crea).
         - Owner del Agent: `email` del `user` cuyo `user_id` es
           `worker_manager.worker_manager_user`.
+        - Modelo: `model.name` de la version DEPLOYED (no el de
+          `worker_manager.model`, que no coincide con el desplegado).
         """
         start = datetime.combine(day, time.min)
         end = start + timedelta(days=1)
@@ -140,6 +142,7 @@ class MaisaClient:
                     agent_name=manager.get("worker_manager_name"),
                     agent_owner=emails.get(manager.get("worker_manager_user")),
                     provider_version_id=str(version["worker_version"]),
+                    model_id=(version.get("model") or {}).get("name"),
                 )
             )
         return workers

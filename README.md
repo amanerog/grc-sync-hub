@@ -75,7 +75,8 @@ en orden: `0001_create_maisa_use_case_labels.sql`,
 `0004_create_use_case_sync_failures.sql`,
 `0005_add_owner_to_maisa_use_case_labels.sql`,
 `0006_create_noxus_use_case_labels.sql`,
-`0007_create_worker_sync_failures.sql`) — aplicarlas contra la instancia de
+`0007_create_worker_sync_failures.sql`,
+`0008_add_model_id_to_worker_sync_failures.sql`) — aplicarlas contra la instancia de
 RDS Postgres antes de levantar el servicio.
 
 No commitear nunca valores reales de API key/token — son credenciales del
