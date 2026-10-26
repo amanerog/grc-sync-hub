@@ -66,7 +66,9 @@ BUSINESS_UNIT_TO_BE = {
 
 # Codigo de entidad que Workday antepone a algunos nombres
 # ("SANES_8901 SANTANDER ESPAÑA", "SCONS_0000 Santander Consumer Group").
-_CODE_PREFIX_RE = re.compile(r"^\w+_\w+\s+")
+# El primer tramo excluye "_" para que la regex no tenga backtracking
+# polinomico (Sonar S5852).
+_CODE_PREFIX_RE = re.compile(r"^[^\W_]+_\w+\s+")
 
 
 def _normalize(value: str | None) -> str:
