@@ -52,6 +52,19 @@ class MaisaClient:
             "collections": sorted(collections),
         }
 
+    async def get_worker_manager_id(self, version_id: str) -> str | None:
+        """`worker_manager` (el agente) de una version de Maisa, o None si
+        esa version no existe.
+
+        `version_id` es el `worker_id` de la coleccion `worker` (cada
+        documento es una version, ver `get_updated_workers`) - el
+        `lastVersionId` que maneja el desarrollador.
+        """
+        version = await self._db.worker.find_one(
+            {"worker_id": version_id}, {"worker_manager": 1}
+        )
+        return version["worker_manager"] if version else None
+
     async def get_updated_workers(self, day: date) -> list[Worker]:
         """Agentes de Maisa con algun cambio en el dia `day` (D-1).
 

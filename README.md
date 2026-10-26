@@ -115,3 +115,22 @@ Un despliegue independiente por entidad necesita, como mínimo:
 - Un trigger periódico a `POST /flows/noxus-labels/sync` (tabla intermedia
   → Noxus). No existe equivalente para Maisa — ese envío se hace a mano,
   fuera de este microservicio (ver sección "Estado").
+
+## Checkpoints del pipeline de CI/CD
+
+Endpoints de solo lectura para el pipeline de los agentes de Maisa. Van
+detrás del gateway; el micro no autentica. Consultan Maisa/OpenPages en vivo.
+
+- `GET /checkpoints/agents/{worker_id}` (CP1). `worker_id` es el id de la
+  versión de Maisa (`lastVersionId`); se resuelve a su `worker_manager`, que
+  es lo que lleva el Agent en `PlatformAgentID`. Devuelve `worker_id`,
+  `worker_manager_id`, `agent_id`, `use_case_id`, `use_case_name`,
+  `use_case_status` e `is_generic_use_case`. `agent_id: null` = el Agent aún
+  no existe (Flujo 2 no ha corrido o el agente no pasa sus filtros);
+  `use_case_id: null` = existe pero no cuelga de un caso de uso del
+  Engagement de Maisa. 404 si la versión no existe en Maisa.
+- `GET /checkpoints/use-cases/{use_case_id}` (CP2/CP3). Devuelve
+  `use_case_id`, `name`, `status` (`Santander Fields:Status`) y `owner`.
+  404 si no existe.
+
+Los dos devuelven 502 si falla Maisa u OpenPages.

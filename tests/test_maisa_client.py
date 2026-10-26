@@ -75,6 +75,9 @@ class _FakeCollection:
     async def distinct(self, field, query):
         return sorted({d[field] for d in self._docs if _matches(d, query)})
 
+    async def find_one(self, query, projection=None):
+        return next((d for d in self._docs if _matches(d, query)), None)
+
 
 def _fake_mongo(**collections):
     db = MagicMock()
@@ -182,3 +185,16 @@ def test_use_case_id_from_labels_uses_resource_id_prefix():
     assert _use_case_id_from_labels("WM1", []) is None
     # Varios casos de uso distintos: el primero.
     assert _use_case_id_from_labels("WM1", ["x", "12_A", "34_B", "12_C"]) == "12"
+
+
+async def test_get_worker_manager_id_resolves_version_to_its_agent():
+    mongo = _fake_mongo(
+        worker=[
+            {"worker_id": "v-1", "worker_manager": "wm-1"},
+            {"worker_id": "v-2", "worker_manager": "wm-2"},
+        ]
+    )
+    client = MaisaClient(mongo_client=mongo)
+
+    assert await client.get_worker_manager_id("v-2") == "wm-2"
+    assert await client.get_worker_manager_id("v-404") is None

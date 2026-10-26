@@ -133,6 +133,10 @@ def _field_text(value) -> str | None:
 
 
 _TOKEN_EXPIRY_BUFFER_SECONDS = 60
+# Visto en DEV: la primera query con un token recien emitido por IBM IAM a
+# veces da 401 y la misma, segundos despues, 200 - el token tarda en ser
+# valido en OpenPages. Se reintenta una vez tras esta espera.
+_UNAUTHORIZED_RETRY_DELAY_SECONDS = 2.0
 
 
 class AuronClient:
@@ -225,16 +229,24 @@ class AuronClient:
         offset = 0
 
         while True:
+            body = {
+                "statement": statement,
+                "offset": offset,
+                "case_insensitive": False,
+                "honor_primary": False,
+            }
             response = await self._client.post(
-                settings.auron_use_cases_path,
-                headers=headers,
-                json={
-                    "statement": statement,
-                    "offset": offset,
-                    "case_insensitive": False,
-                    "honor_primary": False,
-                },
+                settings.auron_use_cases_path, headers=headers, json=body
             )
+            if response.status_code == httpx.codes.UNAUTHORIZED:
+                logger.warning(
+                    "auron: 401 en la Query API, se reintenta en %ss",
+                    _UNAUTHORIZED_RETRY_DELAY_SECONDS,
+                )
+                await asyncio.sleep(_UNAUTHORIZED_RETRY_DELAY_SECONDS)
+                response = await self._client.post(
+                    settings.auron_use_cases_path, headers=headers, json=body
+                )
             response.raise_for_status()
             payload = response.json()
 
@@ -464,6 +476,53 @@ class AuronClient:
         # (AIComponent y Register) llegan con el mismo `name`.
         fields = rows[0]["fields"]
         return {"id": fields[0].get("value"), "primaryParentId": fields[2].get("value")}
+
+    async def get_agent_id_by_worker_id(self, worker_id: str) -> str | None:
+        """Resource ID del Agent con esa tag worker_id, o None - sin exigir
+        que cuelgue de un caso de uso ni de ningun Engagement concreto.
+
+        Complementa a `get_agent_by_worker_id` (que solo ve los Agents bajo
+        un caso de uso del Engagement del tenant) para distinguir "el Agent
+        no existe" de "existe pero no cuelga de un caso de uso valido" (ver
+        `CheckpointService`).
+        """
+        statement = (
+            "SELECT [AIComponent].[Resource ID] "
+            "FROM [AIComponent] "
+            "WHERE [AIComponent].[Santander-Fields-Agent:PlatformAgentID] = "
+            f"'{_escape_sql_literal(worker_id)}'"
+        )
+        headers = await self._auth_headers()
+        rows = await self._paginate_query(statement, headers)
+        if not rows:
+            return None
+        return rows[0]["fields"][0].get("value")
+
+    async def get_use_case_status(self, resource_id: str) -> dict | None:
+        """Nombre, Status y Owner de un caso de uso por Resource ID, o None
+        si no existe.
+
+        Via Query API (no `get_use_case_content`): las mismas columnas que
+        ya lee Flujo 1, con los enumerados resueltos por `_field_text`.
+        """
+        statement = (
+            "SELECT [Register].[Resource ID], [Register].[Name], "
+            "[Register].[Santander Fields:Status], "
+            "[Register].[Santander Fields:Owner] "
+            "FROM [Register] "
+            f"WHERE [Register].[Resource ID] = '{_escape_sql_literal(resource_id)}'"
+        )
+        headers = await self._auth_headers()
+        rows = await self._paginate_query(statement, headers)
+        if not rows:
+            return None
+        values = {field["name"]: field.get("value") for field in rows[0]["fields"]}
+        return {
+            "use_case_id": values.get("Resource ID"),
+            "name": values.get("Name"),
+            "status": _field_text(values.get("Santander Fields:Status")),
+            "owner": _field_text(values.get("Santander Fields:Owner")),
+        }
 
     async def create_agent(
         self,

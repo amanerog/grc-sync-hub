@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 import httpx
 import pytest
 
+from sinc_amn.clients import auron_client
 from sinc_amn.clients.auron_client import (
     AuronClient,
     _country_condition,
@@ -802,5 +803,85 @@ async def test_get_use_case_id_by_name_returns_none_when_not_found():
     http_client = _agent_query_client(calls, rows=[])
 
     assert await AuronClient(client=http_client).get_use_case_id_by_name("x", "maisa") is None
+
+    await http_client.aclose()
+
+
+async def test_paginate_query_retries_once_on_401(monkeypatch):
+    monkeypatch.setattr(auron_client, "_UNAUTHORIZED_RETRY_DELAY_SECONDS", 0)
+    statuses = [401, 200]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(
+                200, json={"access_token": "tok-123", "expires_in": 3600}
+            )
+        return httpx.Response(
+            statuses.pop(0), json={"rows": [{"fields": []}], "offset": 0, "limit": 50}
+        )
+
+    http_client = httpx.AsyncClient(
+        base_url=settings.auron_base_url, transport=httpx.MockTransport(handler)
+    )
+    auron = AuronClient(client=http_client)
+
+    rows = await auron._paginate_query("SELECT 1", await auron._auth_headers())
+
+    assert rows == [{"fields": []}]
+    assert statuses == []
+
+    await http_client.aclose()
+
+
+async def test_get_agent_id_by_worker_id_does_not_require_a_parent():
+    calls: list[dict] = []
+    rows = [{"fields": [{"name": "Resource ID", "value": "77001"}]}]
+    http_client = _agent_query_client(calls, rows)
+
+    agent_id = await AuronClient(client=http_client).get_agent_id_by_worker_id("WM1")
+
+    assert agent_id == "77001"
+    statement = calls[0]["statement"]
+    assert "JOIN" not in statement
+    assert "[AIComponent].[Santander-Fields-Agent:PlatformAgentID] = 'WM1'" in statement
+
+    await http_client.aclose()
+
+
+async def test_get_use_case_status_reads_enum_status_and_owner():
+    calls: list[dict] = []
+    rows = [
+        {
+            "fields": [
+                {"name": "Resource ID", "value": "51571"},
+                {"name": "Name", "value": "To be regularized - Maisa - HQ - Others"},
+                {
+                    "name": "Santander Fields:Status",
+                    "value": {"id": "1", "name": "Ready for development"},
+                },
+                {"name": "Santander Fields:Owner", "value": "owner@example.com"},
+            ]
+        }
+    ]
+    http_client = _agent_query_client(calls, rows)
+
+    use_case = await AuronClient(client=http_client).get_use_case_status("51571")
+
+    assert use_case == {
+        "use_case_id": "51571",
+        "name": "To be regularized - Maisa - HQ - Others",
+        "status": "Ready for development",
+        "owner": "owner@example.com",
+    }
+    assert "[Register].[Resource ID] = '51571'" in calls[0]["statement"]
+
+    await http_client.aclose()
+
+
+async def test_get_use_case_status_returns_none_when_not_found():
+    calls: list[dict] = []
+    http_client = _agent_query_client(calls, rows=[])
+
+    assert await AuronClient(client=http_client).get_use_case_status("1") is None
 
     await http_client.aclose()
