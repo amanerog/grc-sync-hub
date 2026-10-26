@@ -152,6 +152,82 @@ class WorkerSyncService:
         )
         return use_case_id, True
 
+    async def _get_use_case_owner(
+        self, worker: Worker, use_case_id: str
+    ) -> str | None:
+        # Owner del Use Case (field "3261" del Agent, distinto del owner
+        # del propio Agent) - se lee de la tabla intermedia del tenant
+        # correspondiente (poblada por Flujo 1), sin GET adicional a
+        # OpenPages.
+        if worker.tenant == "maisa":
+            use_case_label = await self._use_case_labels.get_by_resource_id(
+                use_case_id, organization_id=settings.maisa_organization_id
+            )
+        else:
+            use_case_label = await self._noxus_use_case_labels.get_by_resource_id(
+                use_case_id, organization_id=settings.noxus_organization_id
+            )
+            # Backfill de workspace_id: Flujo 1 (OpenPages) no lo trae,
+            # solo llega aqui via el propio Worker de Noxus. Auxiliar -
+            # un fallo aqui no debe tumbar el aislamiento del item.
+            if use_case_label and use_case_label.workspace_id is None:
+                try:
+                    await self._noxus_use_case_labels.set_workspace_id_if_missing(
+                        use_case_id,
+                        organization_id=settings.noxus_organization_id,
+                        workspace_id=worker.workspace_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "worker_sync: fallo rellenando workspace_id de %s",
+                        use_case_id,
+                    )
+        return use_case_label.owner if use_case_label else None
+
+    async def _upsert_agent(
+        self,
+        worker: Worker,
+        agent: dict | None,
+        use_case_id: str,
+        use_case_owner: str | None,
+    ) -> dict:
+        """Crea el Agent o lo actualiza (moviendolo de caso de uso si hace
+        falta)."""
+        if agent is None:
+            return await self._auron.create_agent(
+                worker_id=worker.worker_id,
+                use_case_id=use_case_id,
+                tenant=worker.tenant,
+                name=worker.agent_name,
+                description=worker.agent_description,
+                use_case_owner=use_case_owner,
+                agent_owner=worker.agent_owner,
+                provider_version_id=worker.provider_version_id,
+            )
+        old_use_case_id = agent.get("primaryParentId")
+        if old_use_case_id and old_use_case_id != use_case_id:
+            # Confirmado (equipo Auron/IBM): el caso de uso
+            # vinculado no se puede cambiar en un update_agent
+            # (PUT) ni sobrescribiendo la asociacion - hay que
+            # borrar la asociacion vieja y crear la nueva. No hace
+            # falta borrar/recrear el Agent entero.
+            await self._auron.dissociate(agent["id"], old_use_case_id)
+            await self._auron.associate(
+                agent["id"],
+                use_case_id,
+                association_definition_id="966",
+                association_type="PARENT",
+            )
+        return await self._auron.update_agent(
+            agent_id=agent["id"],
+            tenant=worker.tenant,
+            name=worker.agent_name,
+            description=worker.agent_description,
+            use_case_owner=use_case_owner,
+            agent_owner=worker.agent_owner,
+            provider_version_id=worker.provider_version_id,
+        )
+
     async def _ingest_worker(self, worker: Worker) -> bool:
         """Ingesta un worker de forma aislada: nunca propaga un fallo, lo
         registra (log + intento de MonitoringStore) y devuelve False.
@@ -162,9 +238,7 @@ class WorkerSyncService:
         # para el alta). workspace_id no es un dato del Agent, asi que no se
         # le pasa aqui.
         # Si el Agent ya existe pero con otro caso de uso vinculado (p.ej.
-        # estaba en el generico y ya tiene label), no se puede reasignar via
-        # update_agent (confirmado) - hay que borrar la asociacion vieja y
-        # crear la nueva, ver rama mas abajo.
+        # estaba en el generico y ya tiene label), se mueve en _upsert_agent.
         agent: dict | None = None
         use_case_id = worker.use_case_id or ""
 
@@ -176,70 +250,8 @@ class WorkerSyncService:
                 worker.worker_id, worker.tenant
             )
 
-            # Owner del Use Case (field "3261" del Agent, distinto del owner
-            # del propio Agent) - se lee de la tabla intermedia del tenant
-            # correspondiente (poblada por Flujo 1), sin GET adicional a
-            # OpenPages.
-            if worker.tenant == "maisa":
-                use_case_label = await self._use_case_labels.get_by_resource_id(
-                    use_case_id, organization_id=settings.maisa_organization_id
-                )
-            else:
-                use_case_label = await self._noxus_use_case_labels.get_by_resource_id(
-                    use_case_id, organization_id=settings.noxus_organization_id
-                )
-                # Backfill de workspace_id: Flujo 1 (OpenPages) no lo trae,
-                # solo llega aqui via el propio Worker de Noxus. Auxiliar -
-                # un fallo aqui no debe tumbar el aislamiento del item.
-                if use_case_label and use_case_label.workspace_id is None:
-                    try:
-                        await self._noxus_use_case_labels.set_workspace_id_if_missing(
-                            use_case_id,
-                            organization_id=settings.noxus_organization_id,
-                            workspace_id=worker.workspace_id,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "worker_sync: fallo rellenando workspace_id de %s",
-                            use_case_id,
-                        )
-            use_case_owner = use_case_label.owner if use_case_label else None
-
-            if agent is None:
-                agent = await self._auron.create_agent(
-                    worker_id=worker.worker_id,
-                    use_case_id=use_case_id,
-                    tenant=worker.tenant,
-                    name=worker.agent_name,
-                    description=worker.agent_description,
-                    use_case_owner=use_case_owner,
-                    agent_owner=worker.agent_owner,
-                    provider_version_id=worker.provider_version_id,
-                )
-            else:
-                old_use_case_id = agent.get("primaryParentId")
-                if old_use_case_id and old_use_case_id != use_case_id:
-                    # Confirmado (equipo Auron/IBM): el caso de uso
-                    # vinculado no se puede cambiar en un update_agent
-                    # (PUT) ni sobrescribiendo la asociacion - hay que
-                    # borrar la asociacion vieja y crear la nueva. No hace
-                    # falta borrar/recrear el Agent entero.
-                    await self._auron.dissociate(agent["id"], old_use_case_id)
-                    await self._auron.associate(
-                        agent["id"],
-                        use_case_id,
-                        association_definition_id="966",
-                        association_type="PARENT",
-                    )
-                agent = await self._auron.update_agent(
-                    agent_id=agent["id"],
-                    tenant=worker.tenant,
-                    name=worker.agent_name,
-                    description=worker.agent_description,
-                    use_case_owner=use_case_owner,
-                    agent_owner=worker.agent_owner,
-                    provider_version_id=worker.provider_version_id,
-                )
+            use_case_owner = await self._get_use_case_owner(worker, use_case_id)
+            agent = await self._upsert_agent(worker, agent, use_case_id, use_case_owner)
 
             if is_generic:
                 # 7A: ademas del fallback generico, se notifica al admin del
