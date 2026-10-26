@@ -76,7 +76,12 @@ en orden: `0001_create_maisa_use_case_labels.sql`,
 `0007_create_worker_sync_failures.sql`,
 `0008_add_model_id_to_worker_sync_failures.sql`,
 `0009_create_workday_members.sql`) — aplicarlas contra la instancia de
-RDS Postgres antes de levantar el servicio.
+RDS Postgres antes de levantar el servicio. Desde el pod, con
+`scripts/apply_migrations.py`:
+
+```
+kubectl exec -n <ns> <pod> -- python scripts/apply_migrations.py db/migrations/0009_create_workday_members.sql
+```
 
 Flujo 2 necesita además los datos de Workday (`workday_members`) para
 elegir el caso de uso genérico de cada Business Entity. Se cargan desde el
