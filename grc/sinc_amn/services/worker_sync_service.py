@@ -230,7 +230,7 @@ class WorkerSyncService:
 
     async def _update_use_case(self, worker: Worker, use_case_id: str) -> None:
         """Datos del worker que van en el caso de uso y no en el Agent
-        (confirmado por Auron): "3601" Initiative = workspace, "3408" API ID
+        (confirmado por Auron): "3601" Initiative = id del workspace, "3408" API ID
         = modelo de la version desplegada, "3405" cuenta cloud.
 
         Solo para casos de uso reales: los genericos los comparten agentes
