@@ -50,8 +50,9 @@ pipenv run uvicorn sinc_amn.main:app --reload --app-dir grc
 
 Variables de entorno requeridas (ver `grc/sinc_amn/config.py`), prefijo
 `SINC_AMN_`: `AURON_API_KEY`, `AURON_ZEN_INSTANCE_ID`, `MAISA_DOCUMENTDB_DSN`,
-`NOXUS_BASE_URL`, `NOXUS_API_KEY`, `GENERIC_USE_CASE_ID`,
-`INTERMEDIATE_DB_DSN`, `MAISA_ORGANIZATION_ID`, `NOXUS_ORGANIZATION_ID`.
+`INTERMEDIATE_DB_DSN`, `MAISA_ORGANIZATION_ID`. Las de Noxus
+(`NOXUS_BASE_URL`, `NOXUS_API_KEY`, `GENERIC_USE_CASE_ID`,
+`NOXUS_ORGANIZATION_ID`) son opcionales mientras Noxus siga apagado.
 `MAISA_DOCUMENTDB_DSN` es la cadena de conexión completa (con credenciales
 y opciones, p.ej. `tls=true&tlsCAFile=global-bundle.pem&replicaSet=rs0`)
 a la BBDD de Maisa (AWS DocumentDB/MongoDB) — confirmado que

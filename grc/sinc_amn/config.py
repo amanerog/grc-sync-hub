@@ -62,15 +62,18 @@ class Settings(BaseSettings):
     maisa_workers_environment: str = "PRE"
 
     # Noxus
-    noxus_base_url: str
-    noxus_api_key: str
+    # Opcionales mientras Noxus siga apagado (noxus_workers_enabled y sin
+    # noxus_organization_id): solo los usa NoxusClient.
+    noxus_base_url: str | None = None
+    noxus_api_key: str | None = None
     # Flujo 2 (1B): NoxusClient.get_updated_workers sigue sin implementar
     # (contrato sin confirmar) - mientras este a False, Flujo 2 solo procesa
     # Maisa en vez de fallar entero con NotImplementedError.
     noxus_workers_enabled: bool = False
 
     # Flujo 2: caso de uso generico para workers sin use_case_id
-    generic_use_case_id: str
+    # Solo Noxus (Maisa usa el generico de su Business Entity).
+    generic_use_case_id: str | None = None
     # typeDefinitionId del tipo "Agent" en OpenPages. Confirmado via dos
     # ejemplos reales independientes con el mismo valor (no se ha visto
     # variar por tenant Maisa/Noxus).

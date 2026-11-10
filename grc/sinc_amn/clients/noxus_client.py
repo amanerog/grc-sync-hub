@@ -18,7 +18,7 @@ class NoxusClient:
 
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
         self._client = client or httpx.AsyncClient(
-            base_url=settings.noxus_base_url,
+            base_url=settings.noxus_base_url or "",
             headers={"Authorization": f"Bearer {settings.noxus_api_key}"},
         )
 
