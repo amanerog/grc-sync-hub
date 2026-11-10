@@ -963,3 +963,27 @@ async def test_get_use_case_status_returns_none_when_not_found():
     assert await AuronClient(client=http_client).get_use_case_status("1") is None
 
     await http_client.aclose()
+
+
+async def test_contents_calls_retry_once_on_401(monkeypatch):
+    monkeypatch.setattr(auron_client, "_UNAUTHORIZED_RETRY_DELAY_SECONDS", 0)
+    statuses = [401, 200]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(
+                200, json={"access_token": "tok-123", "expires_in": 3600}
+            )
+        return httpx.Response(statuses.pop(0), json={"name": "Agent"})
+
+    http_client = httpx.AsyncClient(
+        base_url=settings.auron_base_url, transport=httpx.MockTransport(handler)
+    )
+    auron = AuronClient(client=http_client)
+
+    content = await auron.get_use_case_content("54161")
+
+    assert content == {"name": "Agent"}
+    assert statuses == []
+
+    await http_client.aclose()

@@ -25,8 +25,8 @@ _FIELD_IDS = ("3261", "3293", "3290")
 
 async def _put(auron: AuronClient, agent_id: str, label: str, payload: dict) -> None:
     headers = await auron._auth_headers()
-    response = await auron._client.put(
-        f"/grc/api/contents/{agent_id}", headers=headers, json=payload
+    response = await auron._request(
+        "PUT", f"/grc/api/contents/{agent_id}", headers=headers, json=payload
     )
     body = "" if response.is_success else " " + response.text[:500]
     print(f"  {label:<45} -> {response.status_code}{body}")

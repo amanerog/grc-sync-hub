@@ -208,6 +208,25 @@ class AuronClient:
             "ZEN-Service-Instance-Id": settings.auron_zen_instance_id,
         }
 
+    async def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """Peticion a OpenPages, reintentando una vez si da 401.
+
+        Visto en real: justo despues de pedir un token nuevo, la primera
+        llamada a OpenPages (Query API o /grc/api/contents) puede dar 401 con
+        ese mismo token, y a los pocos segundos lo acepta.
+        """
+        response = await self._client.request(method, url, **kwargs)
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            logger.warning(
+                "auron: 401 en %s %s, se reintenta en %ss",
+                method,
+                url,
+                _UNAUTHORIZED_RETRY_DELAY_SECONDS,
+            )
+            await asyncio.sleep(_UNAUTHORIZED_RETRY_DELAY_SECONDS)
+            response = await self._client.request(method, url, **kwargs)
+        return response
+
     async def get_use_cases(self, tenants: list[str]) -> list[UseCase]:
         """Casos de uso de los tenants dados, filtrados por fecha en el propio
         WHERE segun `settings.auron_use_cases_since` (ver `_since_condition`).
@@ -249,18 +268,9 @@ class AuronClient:
                 "case_insensitive": False,
                 "honor_primary": False,
             }
-            response = await self._client.post(
-                settings.auron_use_cases_path, headers=headers, json=body
+            response = await self._request(
+                "POST", settings.auron_use_cases_path, headers=headers, json=body
             )
-            if response.status_code == httpx.codes.UNAUTHORIZED:
-                logger.warning(
-                    "auron: 401 en la Query API, se reintenta en %ss",
-                    _UNAUTHORIZED_RETRY_DELAY_SECONDS,
-                )
-                await asyncio.sleep(_UNAUTHORIZED_RETRY_DELAY_SECONDS)
-                response = await self._client.post(
-                    settings.auron_use_cases_path, headers=headers, json=body
-                )
             _raise_for_status(response)
             payload = response.json()
 
@@ -300,8 +310,8 @@ class AuronClient:
         implementado para cuando haga falta leer campos concretos.
         """
         headers = await self._auth_headers()
-        response = await self._client.get(
-            f"/grc/api/contents/{resource_id}", headers=headers
+        response = await self._request(
+            "GET", f"/grc/api/contents/{resource_id}", headers=headers
         )
         _raise_for_status(response)
         return response.json()
@@ -319,7 +329,8 @@ class AuronClient:
         cuando haga falta escribir de vuelta en OpenPages.
         """
         headers = await self._auth_headers()
-        response = await self._client.put(
+        response = await self._request(
+            "PUT",
             f"/grc/api/contents/{resource_id}",
             headers=headers,
             json={"name": name, "description": description, "fields": fields or {}},
@@ -380,8 +391,8 @@ class AuronClient:
         endpoint/verbo ya confirmada.
         """
         headers = await self._auth_headers()
-        response = await self._client.put(
-            f"/grc/api/contents/{resource_id}", headers=headers, json=payload
+        response = await self._request(
+            "PUT", f"/grc/api/contents/{resource_id}", headers=headers, json=payload
         )
         _raise_for_status(response)
         return response.json()
@@ -401,7 +412,8 @@ class AuronClient:
         `WorkerSyncService._ingest_worker`.
         """
         headers = await self._auth_headers()
-        response = await self._client.delete(
+        response = await self._request(
+            "DELETE",
             f"/grc/api/contents/{resource_id}/associations",
             headers=headers,
             params={"parents": parent_id},
@@ -425,8 +437,8 @@ class AuronClient:
         TODOs mas abajo); no usado todavia por ningun flujo real.
         """
         headers = await self._auth_headers()
-        response = await self._client.post(
-            "/grc/api/contents", headers=headers, json=payload
+        response = await self._request(
+            "POST", "/grc/api/contents", headers=headers, json=payload
         )
         _raise_for_status(response)
         return response.json()
@@ -452,7 +464,8 @@ class AuronClient:
         a un Agent existente cuando cambia.
         """
         headers = await self._auth_headers()
-        response = await self._client.post(
+        response = await self._request(
+            "POST",
             f"/grc/api/contents/{resource_id}/associations",
             headers=headers,
             json=[
