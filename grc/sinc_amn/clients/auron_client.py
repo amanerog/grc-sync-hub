@@ -132,6 +132,20 @@ def _field_text(value) -> str | None:
     return str(value)
 
 
+def _raise_for_status(response: httpx.Response) -> None:
+    """`raise_for_status`, dejando antes en el log lo que responde OpenPages:
+    en los 4xx/5xx el motivo solo viene en el cuerpo."""
+    if response.is_error:
+        logger.error(
+            "auron: %s %s -> %d %s",
+            response.request.method,
+            response.request.url.path,
+            response.status_code,
+            response.text[:2000],
+        )
+    response.raise_for_status()
+
+
 _TOKEN_EXPIRY_BUFFER_SECONDS = 60
 # Visto en DEV: la primera query con un token recien emitido por IBM IAM a
 # veces da 401 y la misma, segundos despues, 200 - el token tarda en ser
@@ -247,7 +261,7 @@ class AuronClient:
                 response = await self._client.post(
                     settings.auron_use_cases_path, headers=headers, json=body
                 )
-            response.raise_for_status()
+            _raise_for_status(response)
             payload = response.json()
 
             page_rows = payload.get("rows", [])
@@ -289,7 +303,7 @@ class AuronClient:
         response = await self._client.get(
             f"/grc/api/contents/{resource_id}", headers=headers
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         return response.json()
 
     async def update_use_case(
@@ -310,7 +324,7 @@ class AuronClient:
             headers=headers,
             json={"name": name, "description": description, "fields": fields or {}},
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         return response.json()
 
     async def update_use_case_fields(
@@ -369,7 +383,7 @@ class AuronClient:
         response = await self._client.put(
             f"/grc/api/contents/{resource_id}", headers=headers, json=payload
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         return response.json()
 
     async def dissociate(self, resource_id: str, parent_id: str) -> None:
@@ -392,7 +406,7 @@ class AuronClient:
             headers=headers,
             params={"parents": parent_id},
         )
-        response.raise_for_status()
+        _raise_for_status(response)
 
     async def create_content(self, payload: dict) -> dict:
         """POST /grc/api/contents - crea un recurso generico en OpenPages.
@@ -414,7 +428,7 @@ class AuronClient:
         response = await self._client.post(
             "/grc/api/contents", headers=headers, json=payload
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         return response.json()
 
     async def associate(
@@ -449,7 +463,7 @@ class AuronClient:
                 }
             ],
         )
-        response.raise_for_status()
+        _raise_for_status(response)
 
     async def get_use_case_id_by_name(self, name: str, tenant: str) -> str | None:
         """Resource ID del caso de uso con ese nombre exacto dentro del
