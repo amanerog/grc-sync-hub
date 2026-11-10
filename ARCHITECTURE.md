@@ -457,9 +457,11 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      `worker.model_id`, en Maisa `worker.model.name` de la versión
      DEPLOYED) NO van en el Agent** (confirmado por Auron): van en un PUT
      al caso de uso junto con `"3601"` (Initiative = workspace de
-     Maisa/Noxus), **pendiente de implementar**. `Worker.model_id` ya se
-     extrae y se guarda en `worker_sync_failures` (migración 0008) para
-     cuando se implemente.
+     Maisa/Noxus): `WorkerSyncService._update_use_case` →
+     `AuronClient.update_use_case_fields`, que lee el caso de uso, reenvía
+     su `name`/`description` y solo hace el PUT si algún valor cambia. No
+     se hace en los casos de uso genéricos (los comparten agentes de
+     workspaces y modelos distintos).
    - **El caso de uso genérico ya no sería un ID fijo simple — pero el
      diseño exacto está otra vez sin confirmar a nivel funcional** (se
      había dado por bueno "uno distinto por `(tenant, consumerId)`", con

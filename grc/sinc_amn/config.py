@@ -99,8 +99,8 @@ class Settings(BaseSettings):
     # creador sin datos en Workday). En PRE no existe "Other" (default).
     auron_other_business_entity: str = "HQ - Others"
     # Field "3405" ("Identifier of the cloud account... en Development").
-    # Confirmado que va en el caso de uso, no en el Agent - sin uso hasta
-    # implementar el PUT al caso de uso de Flujo 2. Pendiente de confirmar
+    # Confirmado que va en el caso de uso, no en el Agent
+    # (WorkerSyncService._update_use_case; sin valor no se envia). Pendiente de confirmar
     # si es la cuenta del microservicio o la del proveedor (Maisa/Noxus).
     aws_account_id: str | None = None
 

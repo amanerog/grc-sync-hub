@@ -341,6 +341,84 @@ async def test_get_use_case_content_and_update_use_case():
     await http_client.aclose()
 
 
+def _make_use_case_fields_client(content: dict, puts: list[dict]) -> httpx.AsyncClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(
+                200, json={"access_token": "tok-123", "expires_in": 3600}
+            )
+        if request.url.path == "/grc/api/contents/UC-1":
+            if request.method == "GET":
+                return httpx.Response(200, json=content)
+            if request.method == "PUT":
+                puts.append(json.loads(request.content))
+                return httpx.Response(200, json={"id": "UC-1"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    return httpx.AsyncClient(
+        base_url=settings.auron_base_url, transport=httpx.MockTransport(handler)
+    )
+
+
+async def test_update_use_case_fields_resends_name_and_description():
+    content = {
+        "name": "Caso original",
+        "description": "Descripcion original",
+        "fields": {
+            "field": [
+                {"id": "3601", "name": "Initiative", "dataType": "STRING_TYPE",
+                 "value": "WS-OLD"},
+                {"id": "3408", "name": "API ID", "dataType": "STRING_TYPE",
+                 "value": "gpt-4o"},
+            ]
+        },
+    }
+    puts: list[dict] = []
+    http_client = _make_use_case_fields_client(content, puts)
+    auron = AuronClient(client=http_client)
+
+    await auron.update_use_case_fields(
+        "UC-1", {"3601": "WS-1", "3408": "gpt-4o", "3405": None, "9999": "x"}
+    )
+
+    # 3408 no cambia y 3405 no tiene valor: solo van 3601 y 9999 (este sin
+    # name, no vino en el GET).
+    assert puts == [
+        {
+            "name": "Caso original",
+            "description": "Descripcion original",
+            "fields": {
+                "field": [
+                    {"id": "3601", "dataType": "STRING_TYPE", "hasChanged": True,
+                     "value": "WS-1", "name": "Initiative"},
+                    {"id": "9999", "dataType": "STRING_TYPE", "hasChanged": True,
+                     "value": "x"},
+                ]
+            },
+        }
+    ]
+
+    await http_client.aclose()
+
+
+async def test_update_use_case_fields_skips_put_when_nothing_changed():
+    content = {
+        "name": "Caso original",
+        "fields": {"field": [{"id": "3601", "dataType": "STRING_TYPE",
+                              "value": "WS-1"}]},
+    }
+    puts: list[dict] = []
+    http_client = _make_use_case_fields_client(content, puts)
+    auron = AuronClient(client=http_client)
+
+    result = await auron.update_use_case_fields("UC-1", {"3601": "WS-1", "3408": None})
+
+    assert result is None
+    assert puts == []
+
+    await http_client.aclose()
+
+
 def _make_create_content_client(captured: list[dict]) -> httpx.AsyncClient:
     def handler(request: httpx.Request) -> httpx.Response:
         if str(request.url) == TOKEN_URL:

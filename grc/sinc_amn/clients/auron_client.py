@@ -313,6 +313,46 @@ class AuronClient:
         response.raise_for_status()
         return response.json()
 
+    async def update_use_case_fields(
+        self, resource_id: str, values: dict[str, str | None]
+    ) -> dict | None:
+        """Actualiza campos personalizados de un caso de uso (`{field id:
+        valor}`), sin tocar el resto. None si no habia nada que cambiar.
+
+        Confirmado (equipo Auron/IBM): el PUT lleva `name` y `description`
+        ademas de los fields, asi que se leen primero del propio caso de uso
+        y se reenvian tal cual. Del GET se toman tambien el `dataType` y el
+        `name` de cada field; si el field no viene (vacio en OpenPages) se
+        manda como STRING_TYPE. Los valores None se ignoran, y si todos
+        coinciden con lo que ya hay no se hace el PUT.
+        """
+        content = await self.get_use_case_content(resource_id)
+        current = {
+            field["id"]: field
+            for field in (content.get("fields") or {}).get("field") or []
+        }
+        changed = []
+        for field_id, value in values.items():
+            existing = current.get(field_id, {})
+            if value is None or existing.get("value") == value:
+                continue
+            field = {
+                "id": field_id,
+                "dataType": existing.get("dataType", "STRING_TYPE"),
+                "hasChanged": True,
+                "value": value,
+            }
+            if existing.get("name"):
+                field["name"] = existing["name"]
+            changed.append(field)
+        if not changed:
+            return None
+
+        payload = {"name": content["name"], "fields": {"field": changed}}
+        if content.get("description"):
+            payload["description"] = content["description"]
+        return await self.update_content(resource_id, payload)
+
     async def update_content(self, resource_id: str, payload: dict) -> dict:
         """PUT /grc/api/contents/{resource_id} - actualiza un recurso generico en OpenPages.
 
@@ -590,7 +630,7 @@ class AuronClient:
 
         Confirmado (equipo Auron/IBM): `"3405"` (cuenta cloud) y `"3408"`
         (API ID / modelo LLM) NO van en el Agent sino en el caso de uso -
-        ese PUT al caso de uso esta pendiente (ver ARCHITECTURE.md).
+        ver `update_use_case_fields`.
 
         Confirmado (equipo Auron/IBM): el caso de uso vinculado
         (`primaryParentId`) NO se puede cambiar en un `update_agent` -

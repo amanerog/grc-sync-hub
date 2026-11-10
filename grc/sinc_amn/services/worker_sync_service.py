@@ -228,6 +228,24 @@ class WorkerSyncService:
             provider_version_id=worker.provider_version_id,
         )
 
+    async def _update_use_case(self, worker: Worker, use_case_id: str) -> None:
+        """Datos del worker que van en el caso de uso y no en el Agent
+        (confirmado por Auron): "3601" Initiative = workspace, "3408" API ID
+        = modelo de la version desplegada, "3405" cuenta cloud.
+
+        Solo para casos de uso reales: los genericos los comparten agentes
+        de workspaces y modelos distintos. Si varios agentes cuelgan del
+        mismo caso de uso, gana el ultimo procesado.
+        """
+        await self._auron.update_use_case_fields(
+            use_case_id,
+            {
+                "3601": worker.workspace_id,
+                "3408": worker.model_id,
+                "3405": settings.aws_account_id,
+            },
+        )
+
     async def _ingest_worker(self, worker: Worker) -> bool:
         """Ingesta un worker de forma aislada: nunca propaga un fallo, lo
         registra (log + intento de MonitoringStore) y devuelve False.
@@ -253,7 +271,9 @@ class WorkerSyncService:
             use_case_owner = await self._get_use_case_owner(worker, use_case_id)
             agent = await self._upsert_agent(worker, agent, use_case_id, use_case_owner)
 
-            if is_generic:
+            if not is_generic:
+                await self._update_use_case(worker, use_case_id)
+            else:
                 # 7A: ademas del fallback generico, se notifica al admin del
                 # workspace para que lo regularice.
                 await self._notifier.notify_pending_regularization(

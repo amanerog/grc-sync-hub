@@ -31,8 +31,8 @@ class Worker(BaseModel):
     provider_version_id: str | None = None
     # Id tecnico del modelo LLM de la version desplegada (Maisa:
     # `worker.model.name`). Opcional: hay versiones sin modelo. Destino:
-    # field "3408" (Santander Fields:API ID) del caso de uso, no del Agent -
-    # sin enviar hasta implementar el PUT al caso de uso.
+    # field "3408" (Santander Fields:API ID) del caso de uso, no del Agent
+    # (WorkerSyncService._update_use_case).
     model_id: str | None = None
     # TODO: completar con el resto de campos del contrato real de Maisa/Noxus,
     # si aparecen mas al confirmarlo. El field "3405" (cuenta cloud, en el

@@ -560,6 +560,35 @@ async def test_ingest_worker_uses_business_entity_generic_when_maisa_label_missi
     )
 
 
+async def test_ingest_worker_updates_real_use_case_fields(monkeypatch):
+    monkeypatch.setattr(settings, "aws_account_id", "123456789012")
+    worker = _worker(model_id="gpt-4o")
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_cases_by_resource_ids.return_value = [object()]
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+
+    ok = await _service(auron=auron)._ingest_worker(worker)
+
+    assert ok is True
+    auron.update_use_case_fields.assert_awaited_once_with(
+        "UC-1", {"3601": "WS-1", "3408": "gpt-4o", "3405": "123456789012"}
+    )
+
+
+async def test_ingest_worker_does_not_update_generic_use_case():
+    worker = _worker(use_case_id=None)
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+    auron.get_use_case_id_by_name.return_value = "GEN-1"
+
+    ok = await _service(auron=auron)._ingest_worker(worker)
+
+    assert ok is True
+    auron.update_use_case_fields.assert_not_awaited()
+
+
 async def test_ingest_worker_uses_generic_when_maisa_use_case_not_in_auron():
     auron = AsyncMock(spec=AuronClient)
     auron.get_use_cases_by_resource_ids.return_value = []
