@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     # ejemplos reales independientes con el mismo valor (no se ha visto
     # variar por tenant Maisa/Noxus).
     auron_agent_type_definition_id: str = "156"
+    # Valor (por nombre) del enum "172" del Agent ("MRG-AIFacts-AIComponent:AI
+    # Component Level", en pantalla "Autonomy Level"). OpenPages lo exige en
+    # cualquier PUT/POST del Agent. Valores visibles: Informational,
+    # Assistive, Semi-automated, Fully automated. Se pone en el alta y en
+    # los Agents que no lo tengan; si ya tienen uno, se respeta.
+    auron_agent_autonomy_level: str = "Assistive"
     # primaryParentId usado al crear el Use Case generico "Pendiente de
     # regularizar" (typeDefinitionId "94", ver ARCHITECTURE.md). Confirmado
     # que es especifico de entorno: "10135" es el valor real de PRE, valido

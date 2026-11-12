@@ -565,6 +565,12 @@ async def test_create_agent_posts_expected_payload():
                         "hasChanged": True,
                         "value": "v1.0",
                     },
+                    {
+                        "id": "172",
+                        "dataType": "ENUM_TYPE",
+                        "hasChanged": True,
+                        "enumValue": {"name": settings.auron_agent_autonomy_level},
+                    },
                 ]
             },
         }
@@ -652,11 +658,17 @@ async def test_create_agent_raises_when_provider_version_id_missing():
     await http_client.aclose()
 
 
-def _make_update_content_client(captured: list[tuple[str, dict]]) -> httpx.AsyncClient:
+def _make_update_content_client(
+    captured: list[tuple[str, dict]], current_fields: list[dict] | None = None
+) -> httpx.AsyncClient:
     def handler(request: httpx.Request) -> httpx.Response:
         if str(request.url) == TOKEN_URL:
             return httpx.Response(
                 200, json={"access_token": "tok-123", "expires_in": 3600}
+            )
+        if request.method == "GET":
+            return httpx.Response(
+                200, json={"name": "Agent", "fields": {"field": current_fields or []}}
             )
 
         assert request.method == "PUT"
@@ -724,9 +736,41 @@ async def test_update_agent_puts_expected_payload_without_primary_parent_id():
                     "hasChanged": True,
                     "value": "v1.0",
                 },
+                {
+                    "id": "172",
+                    "dataType": "ENUM_TYPE",
+                    "hasChanged": True,
+                    "enumValue": {"name": settings.auron_agent_autonomy_level},
+                },
             ]
         },
     }
+
+    await http_client.aclose()
+
+
+async def test_update_agent_keeps_existing_autonomy_level():
+    captured: list[tuple[str, dict]] = []
+    http_client = _make_update_content_client(
+        captured,
+        current_fields=[
+            {"id": "172", "dataType": "ENUM_TYPE", "enumValue": {"name": "Fully automated"}}
+        ],
+    )
+    auron = AuronClient(client=http_client)
+
+    await auron.update_agent(
+        agent_id="35378",
+        tenant="maisa",
+        name="Agente de prueba",
+        description=None,
+        use_case_owner=None,
+        agent_owner="agent-owner@example.com",
+        provider_version_id="v1.0",
+    )
+
+    _, payload = captured[0]
+    assert [field["id"] for field in payload["fields"]["field"]] == ["3261", "3293", "3290"]
 
     await http_client.aclose()
 

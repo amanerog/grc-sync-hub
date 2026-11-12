@@ -66,6 +66,9 @@ sin valor, Flujo 2 no lo envía). `AURON_BASE_URL` es opcional: si no se setea, 
 deriva de `AURON_ZEN_INSTANCE_ID`
 (`https://<zen_instance_id>.eu-de.openpages.cloud.ibm.com`); solo hace falta
 fijarla a mano si el host real no sigue ese patrón.
+`AURON_AGENT_AUTONOMY_LEVEL` (opcional, por defecto `Assistive`) es el valor,
+por nombre, del enum obligatorio `"172"` ("Autonomy Level") del Agent: se pone
+en el alta y en los Agents que aún no lo tienen.
 
 Las migraciones de la tabla intermedia están en `db/migrations/` (aplicarlas
 en orden: `0001_create_maisa_use_case_labels.sql`,

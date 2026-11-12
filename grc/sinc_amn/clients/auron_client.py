@@ -146,6 +146,21 @@ def _raise_for_status(response: httpx.Response) -> None:
     response.raise_for_status()
 
 
+# "MRG-AIFacts-AIComponent:AI Component Level" ("Autonomy Level"), enum
+# obligatorio del Agent: sin el, OpenPages rechaza cualquier PUT
+# (OP-03374 "Property 172 is required").
+_AUTONOMY_LEVEL_FIELD_ID = "172"
+
+
+def _autonomy_level_field() -> dict:
+    return {
+        "id": _AUTONOMY_LEVEL_FIELD_ID,
+        "dataType": "ENUM_TYPE",
+        "hasChanged": True,
+        "enumValue": {"name": settings.auron_agent_autonomy_level},
+    }
+
+
 _TOKEN_EXPIRY_BUFFER_SECONDS = 60
 # Visto en DEV: la primera query con un token recien emitido por IBM IAM a
 # veces da 401 y la misma, segundos despues, 200 - el token tarda en ser
@@ -654,6 +669,9 @@ class AuronClient:
           **resuelto**: confirmado que viene de Maisa/Noxus al sincronizar
           (`worker.provider_version_id`, ver `models/worker.py`), igual que
           `agent_name`/`agent_description`.
+        - `"172"` (enum "AI Component Level"/"Autonomy Level") =
+          `settings.auron_agent_autonomy_level`. Obligatorio para OpenPages;
+          `update_agent` solo lo envia si el Agent aun no tiene valor.
 
         Confirmado (equipo Auron/IBM): `"3405"` (cuenta cloud) y `"3408"`
         (API ID / modelo LLM) NO van en el Agent sino en el caso de uso -
@@ -706,6 +724,7 @@ class AuronClient:
                         "hasChanged": True,
                         "value": provider_version_id,
                     },
+                    _autonomy_level_field(),
                 ]
             },
         }
@@ -790,6 +809,18 @@ class AuronClient:
         }
         if description:
             payload["description"] = description
+        if not await self._has_autonomy_level(agent_id):
+            payload["fields"]["field"].append(_autonomy_level_field())
 
         return await self.update_content(agent_id, payload)
+
+    async def _has_autonomy_level(self, agent_id: str) -> bool:
+        """Si el Agent ya tiene valor en el enum "172" (Autonomy Level). Los
+        Agents creados antes de que fuera obligatorio no lo tienen; si alguien
+        lo ha rellenado a mano, no se pisa."""
+        content = await self.get_use_case_content(agent_id)
+        for field in (content.get("fields") or {}).get("field") or []:
+            if field.get("id") == _AUTONOMY_LEVEL_FIELD_ID:
+                return bool(field.get("enumValue"))
+        return False
 
