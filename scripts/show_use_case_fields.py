@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import asyncpg
+import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "grc"))
 
@@ -47,7 +48,13 @@ async def _show(ids: list[str], show_all: bool, limit: int) -> None:
     ids = ids or await _real_use_case_ids(limit)
     auron = AuronClient()
     for resource_id in ids:
-        content = await auron.get_use_case_content(resource_id)
+        try:
+            content = await auron.get_use_case_content(resource_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != httpx.codes.NOT_FOUND:
+                raise
+            print(f"\n{resource_id}  no existe en OpenPages (404)")
+            continue
         fields = (content.get("fields") or {}).get("field") or []
         print(f"\n{resource_id}  {content.get('name')}")
         by_id = {f.get("id"): f for f in fields}
