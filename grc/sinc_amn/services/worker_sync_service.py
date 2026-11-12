@@ -54,7 +54,7 @@ class WorkerSyncService:
         # Casos de uso genericos ya buscados en este run, por (tenant, nombre).
         self._generic_use_cases: dict[tuple[str, str], str | None] = {}
 
-    async def run(self, day: date | None = None) -> dict:
+    async def run(self, day: date | None = None, full_load: bool = False) -> dict:
         """Ejecuta el Flujo 2 y devuelve un resumen `{total, succeeded, failed}`.
 
         Aislamiento por item (confirmado): un worker que falle no interrumpe
@@ -70,9 +70,14 @@ class WorkerSyncService:
         # `day` solo para pruebas/reprocesos manuales; el CronJob no lo pasa.
         target_day = day or date.today() - timedelta(days=1)
 
-        workers = await self._maisa.get_updated_workers(target_day)  # 1A
-        if settings.noxus_workers_enabled:
-            workers += await self._noxus.get_updated_workers(target_day)  # 1B
+        if full_load:
+            # Carga inicial: todos los agentes de Maisa, sin filtro de fecha.
+            # Noxus no tiene aun un "todos".
+            workers = await self._maisa.get_updated_workers(None)
+        else:
+            workers = await self._maisa.get_updated_workers(target_day)  # 1A
+            if settings.noxus_workers_enabled:
+                workers += await self._noxus.get_updated_workers(target_day)  # 1B
 
         # 2AB: procesar la informacion combinada de ambos origenes.
         results = [await self._ingest_worker(worker) for worker in workers]
@@ -89,7 +94,7 @@ class WorkerSyncService:
             "worker_sync: procesados %d workers (D-1=%s, %d ok, %d fallidos, "
             "%d reintentos)",
             len(workers),
-            target_day,
+            "todos" if full_load else target_day,
             succeeded,
             failed,
             len(retried_workers),

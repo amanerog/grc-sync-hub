@@ -346,6 +346,10 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      (default) para que Flujo 2 procese solo Maisa.
    - `POST /flows/workers/sync?day=YYYY-MM-DD` permite procesar un día
      concreto en vez de D-1 (pruebas/reprocesos; el CronJob no lo pasa).
+   - `POST /flows/workers/sync?full_load=true`: carga inicial, todos los
+     agentes de Maisa del entity/environment configurados, sin filtro de
+     fecha (ignora `day` y Noxus). Repetible: los Agents ya creados se
+     actualizan y, si cambia su caso de uso, se reasocian.
 2. `2AB` El microservicio procesa la información combinada de ambos orígenes.
 3. Para cada worker, ingesta en Auron/OpenPages (`3A-5A` para origen Maisa,
    `3B-5B` para origen Noxus — mismo procedimiento, ejecutado por separado por

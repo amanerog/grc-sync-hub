@@ -24,11 +24,15 @@ router = APIRouter(prefix="/flows/workers", tags=["workers"])
 
 
 @router.post("/sync")
-async def sync_workers(response: Response, day: date | None = None) -> dict:
+async def sync_workers(
+    response: Response, day: date | None = None, full_load: bool = False
+) -> dict:
     """Disparado por el CronJob diario. Ejecuta el Flujo 2 (workers D-1).
 
     `?day=YYYY-MM-DD` (opcional) procesa ese dia en vez de D-1 - para
-    pruebas o reprocesar un dia concreto a mano.
+    pruebas o reprocesar un dia concreto a mano. `?full_load=true` procesa
+    todos los agentes de Maisa, sin filtro de fecha (carga inicial; ignora
+    `day` y Noxus).
 
     202 si todos los items del batch se procesaron bien (o no habia
     ninguno); 207 (Multi-Status) si hubo algun fallo aislado.
@@ -44,6 +48,6 @@ async def sync_workers(response: Response, day: date | None = None) -> dict:
         sync_failures=WorkerSyncFailureRepository(get_pool()),
         business_entities=BusinessEntityRepository(get_pool()),
     )
-    summary = await service.run(day=day)
+    summary = await service.run(day=day, full_load=full_load)
     response.status_code = 202 if summary["failed"] == 0 else 207
     return {"status": "accepted", **summary}

@@ -715,3 +715,31 @@ async def test_run_uses_explicit_day_instead_of_d_minus_1():
     await service.run(day=date(2026, 10, 14))
 
     maisa.get_updated_workers.assert_awaited_once_with(date(2026, 10, 14))
+
+
+async def test_run_full_load_asks_maisa_for_all_workers_and_skips_noxus(monkeypatch):
+    monkeypatch.setattr(settings, "noxus_workers_enabled", True)
+    auron = AsyncMock(spec=AuronClient)
+    maisa = AsyncMock(spec=MaisaClient)
+    maisa.get_updated_workers.return_value = []
+    noxus = AsyncMock(spec=NoxusClient)
+    sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
+    sync_failures.get_pending.return_value = []
+    service = WorkerSyncService(
+        auron=auron,
+        maisa=maisa,
+        noxus=noxus,
+        monitoring=AsyncMock(spec=MonitoringStore),
+        notifier=AsyncMock(spec=AdminNotifier),
+        use_case_labels=AsyncMock(spec=UseCaseLabelRepository),
+        noxus_use_case_labels=AsyncMock(spec=NoxusUseCaseLabelRepository),
+        sync_failures=sync_failures,
+        business_entities=AsyncMock(spec=BusinessEntityRepository),
+    )
+
+    summary = await service.run(day=date(2026, 11, 6), full_load=True)
+
+    maisa.get_updated_workers.assert_awaited_once_with(None)
+    noxus.get_updated_workers.assert_not_awaited()
+    assert summary == {"total": 0, "succeeded": 0, "failed": 0}
+

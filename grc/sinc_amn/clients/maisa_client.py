@@ -65,8 +65,9 @@ class MaisaClient:
         )
         return version["worker_manager"] if version else None
 
-    async def get_updated_workers(self, day: date) -> list[Worker]:
-        """Agentes de Maisa con algun cambio en el dia `day` (D-1).
+    async def get_updated_workers(self, day: date | None) -> list[Worker]:
+        """Agentes de Maisa con algun cambio en el dia `day` (D-1). Con
+        `day=None`, todos, sin filtro de fecha (carga inicial).
 
         Modelo confirmado contra el dump real de `gpp_maisa_metrics`:
         - `worker_manager` es el agente (nombre real, workspace, labels);
@@ -89,16 +90,17 @@ class MaisaClient:
         - Modelo: `model.name` de la version DEPLOYED (no el de
           `worker_manager.model`, que no coincide con el desplegado).
         """
-        start = datetime.combine(day, time.min)
-        end = start + timedelta(days=1)
         scope = {
             "entity": settings.maisa_workers_entity,
             "environment": settings.maisa_workers_environment,
         }
+        changed = {}
+        if day is not None:
+            start = datetime.combine(day, time.min)
+            changed = {"maisa_updated_ts": {"$gte": start, "$lt": start + timedelta(days=1)}}
 
         manager_ids = await self._db.worker.distinct(
-            "worker_manager",
-            {**scope, "maisa_updated_ts": {"$gte": start, "$lt": end}},
+            "worker_manager", {**scope, **changed}
         )
         if not manager_ids:
             return []
