@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     # Assistive, Semi-automated, Fully automated. Se pone en el alta y en
     # los Agents que no lo tengan; si ya tienen uno, se respeta.
     auron_agent_autonomy_level: str = "Assistive"
+    # Igual para el enum "3333" ("watsonx-AIComponent:Agent Role"). Valores
+    # visibles: Orchestrator, Worker, Validator, Supervisor, Reviewer,
+    # Planner, Retriever, Decision Maker.
+    auron_agent_role: str = "Worker"
     # primaryParentId usado al crear el Use Case generico "Pendiente de
     # regularizar" (typeDefinitionId "94", ver ARCHITECTURE.md). Confirmado
     # que es especifico de entorno: "10135" es el valor real de PRE, valido

@@ -566,10 +566,22 @@ async def test_create_agent_posts_expected_payload():
                         "value": "v1.0",
                     },
                     {
+                        "id": "179",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": "agent-owner@example.com",
+                    },
+                    {
                         "id": "172",
                         "dataType": "ENUM_TYPE",
                         "hasChanged": True,
                         "enumValue": {"name": settings.auron_agent_autonomy_level},
+                    },
+                    {
+                        "id": "3333",
+                        "dataType": "ENUM_TYPE",
+                        "hasChanged": True,
+                        "enumValue": {"name": settings.auron_agent_role},
                     },
                 ]
             },
@@ -737,10 +749,22 @@ async def test_update_agent_puts_expected_payload_without_primary_parent_id():
                     "value": "v1.0",
                 },
                 {
+                    "id": "179",
+                    "dataType": "STRING_TYPE",
+                    "hasChanged": True,
+                    "value": "agent-owner@example.com",
+                },
+                {
                     "id": "172",
                     "dataType": "ENUM_TYPE",
                     "hasChanged": True,
                     "enumValue": {"name": settings.auron_agent_autonomy_level},
+                },
+                {
+                    "id": "3333",
+                    "dataType": "ENUM_TYPE",
+                    "hasChanged": True,
+                    "enumValue": {"name": settings.auron_agent_role},
                 },
             ]
         },
@@ -749,12 +773,13 @@ async def test_update_agent_puts_expected_payload_without_primary_parent_id():
     await http_client.aclose()
 
 
-async def test_update_agent_keeps_existing_autonomy_level():
+async def test_update_agent_keeps_existing_enum_values():
     captured: list[tuple[str, dict]] = []
     http_client = _make_update_content_client(
         captured,
         current_fields=[
-            {"id": "172", "dataType": "ENUM_TYPE", "enumValue": {"name": "Fully automated"}}
+            {"id": "172", "dataType": "ENUM_TYPE", "enumValue": {"name": "Fully automated"}},
+            {"id": "3333", "dataType": "ENUM_TYPE", "enumValue": None},
         ],
     )
     auron = AuronClient(client=http_client)
@@ -770,7 +795,9 @@ async def test_update_agent_keeps_existing_autonomy_level():
     )
 
     _, payload = captured[0]
-    assert [field["id"] for field in payload["fields"]["field"]] == ["3261", "3293", "3290"]
+    assert [field["id"] for field in payload["fields"]["field"]] == [
+        "3261", "3293", "3290", "179", "3333"
+    ]
 
     await http_client.aclose()
 

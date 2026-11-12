@@ -68,7 +68,8 @@ deriva de `AURON_ZEN_INSTANCE_ID`
 fijarla a mano si el host real no sigue ese patrón.
 `AURON_AGENT_AUTONOMY_LEVEL` (opcional, por defecto `Assistive`) es el valor,
 por nombre, del enum obligatorio `"172"` ("Autonomy Level") del Agent: se pone
-en el alta y en los Agents que aún no lo tienen.
+en el alta y en los Agents que aún no lo tienen. `AURON_AGENT_ROLE` (por
+defecto `Worker`) hace lo mismo con el enum `"3333"` ("Agent Role").
 
 Las migraciones de la tabla intermedia están en `db/migrations/` (aplicarlas
 en orden: `0001_create_maisa_use_case_labels.sql`,

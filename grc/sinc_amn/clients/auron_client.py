@@ -146,18 +146,22 @@ def _raise_for_status(response: httpx.Response) -> None:
     response.raise_for_status()
 
 
-# "MRG-AIFacts-AIComponent:AI Component Level" ("Autonomy Level"), enum
-# obligatorio del Agent: sin el, OpenPages rechaza cualquier PUT
-# (OP-03374 "Property 172 is required").
-_AUTONOMY_LEVEL_FIELD_ID = "172"
-
-
-def _autonomy_level_field() -> dict:
+# Enums del Agent con valor por defecto, por nombre: "172"
+# ("MRG-AIFacts-AIComponent:AI Component Level", "Autonomy Level") y "3333"
+# ("watsonx-AIComponent:Agent Role"). Sin la 172, OpenPages rechaza cualquier
+# PUT/POST del Agent (OP-03374 "Property 172 is required").
+def _default_enum_fields() -> dict[str, dict]:
     return {
-        "id": _AUTONOMY_LEVEL_FIELD_ID,
-        "dataType": "ENUM_TYPE",
-        "hasChanged": True,
-        "enumValue": {"name": settings.auron_agent_autonomy_level},
+        field_id: {
+            "id": field_id,
+            "dataType": "ENUM_TYPE",
+            "hasChanged": True,
+            "enumValue": {"name": value},
+        }
+        for field_id, value in (
+            ("172", settings.auron_agent_autonomy_level),
+            ("3333", settings.auron_agent_role),
+        )
     }
 
 
@@ -669,9 +673,12 @@ class AuronClient:
           **resuelto**: confirmado que viene de Maisa/Noxus al sincronizar
           (`worker.provider_version_id`, ver `models/worker.py`), igual que
           `agent_name`/`agent_description`.
-        - `"172"` (enum "AI Component Level"/"Autonomy Level") =
-          `settings.auron_agent_autonomy_level`. Obligatorio para OpenPages;
-          `update_agent` solo lo envia si el Agent aun no tiene valor.
+        - `"179"` ("MRG-AIFacts-AIComponent:Technical Owner") = `agent_owner`,
+          igual que `"3293"` (confirmado). Obligatorio para OpenPages.
+        - `"172"` (enum "Autonomy Level") = `settings.auron_agent_autonomy_level`
+          (obligatorio para OpenPages) y `"3333"` (enum "Agent Role") =
+          `settings.auron_agent_role`. `update_agent` solo los envia si el
+          Agent aun no tiene valor.
 
         Confirmado (equipo Auron/IBM): `"3405"` (cuenta cloud) y `"3408"`
         (API ID / modelo LLM) NO van en el Agent sino en el caso de uso -
@@ -724,7 +731,13 @@ class AuronClient:
                         "hasChanged": True,
                         "value": provider_version_id,
                     },
-                    _autonomy_level_field(),
+                    {
+                        "id": "179",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": agent_owner,
+                    },
+                    *_default_enum_fields().values(),
                 ]
             },
         }
@@ -804,23 +817,34 @@ class AuronClient:
                         "hasChanged": True,
                         "value": provider_version_id,
                     },
+                    {
+                        "id": "179",
+                        "dataType": "STRING_TYPE",
+                        "hasChanged": True,
+                        "value": agent_owner,
+                    },
                 ]
             },
         }
         if description:
             payload["description"] = description
-        if not await self._has_autonomy_level(agent_id):
-            payload["fields"]["field"].append(_autonomy_level_field())
+        payload["fields"]["field"] += await self._missing_default_enum_fields(agent_id)
 
         return await self.update_content(agent_id, payload)
 
-    async def _has_autonomy_level(self, agent_id: str) -> bool:
-        """Si el Agent ya tiene valor en el enum "172" (Autonomy Level). Los
-        Agents creados antes de que fuera obligatorio no lo tienen; si alguien
-        lo ha rellenado a mano, no se pisa."""
+    async def _missing_default_enum_fields(self, agent_id: str) -> list[dict]:
+        """Los enums por defecto (`_default_enum_fields`) que el Agent aun no
+        tiene. Los Agents creados antes de que fueran obligatorios no los
+        tienen; si alguien los ha rellenado a mano, no se pisan."""
         content = await self.get_use_case_content(agent_id)
-        for field in (content.get("fields") or {}).get("field") or []:
-            if field.get("id") == _AUTONOMY_LEVEL_FIELD_ID:
-                return bool(field.get("enumValue"))
-        return False
+        filled = {
+            field.get("id")
+            for field in (content.get("fields") or {}).get("field") or []
+            if field.get("enumValue")
+        }
+        return [
+            field
+            for field_id, field in _default_enum_fields().items()
+            if field_id not in filled
+        ]
 
