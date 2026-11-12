@@ -203,6 +203,7 @@ class WorkerSyncService:
                 use_case_owner=use_case_owner,
                 agent_owner=worker.agent_owner,
                 provider_version_id=worker.provider_version_id,
+                environment=_environment(worker),
             )
         old_use_case_id = agent.get("primaryParentId")
         if old_use_case_id and old_use_case_id != use_case_id:
@@ -226,6 +227,7 @@ class WorkerSyncService:
             use_case_owner=use_case_owner,
             agent_owner=worker.agent_owner,
             provider_version_id=worker.provider_version_id,
+            environment=_environment(worker),
         )
 
     async def _update_use_case(self, worker: Worker, use_case_id: str) -> None:
@@ -325,3 +327,10 @@ class WorkerSyncService:
             logger.exception(
                 "worker_sync: fallo actualizando tracking de %s", worker.worker_id
             )
+
+
+def _environment(worker: Worker) -> str | None:
+    """Entorno del proveedor ("Technical Status" del Agent). Maisa: el de
+    `worker_manager.environment`, que es siempre el filtrado en Flujo 2
+    (`settings.maisa_workers_environment`). Noxus: aun sin dato."""
+    return settings.maisa_workers_environment if worker.tenant == "maisa" else None

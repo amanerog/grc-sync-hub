@@ -99,6 +99,7 @@ async def test_run_combines_maisa_and_noxus_workers_and_updates_existing_agent()
         use_case_owner=None,
         agent_owner="agent-owner@example.com",
         provider_version_id=None,
+        environment=settings.maisa_workers_environment,
     )
     auron.create_agent.assert_not_awaited()
     auron.dissociate.assert_not_awaited()
@@ -135,6 +136,7 @@ async def test_ingest_worker_reassociates_when_use_case_changed():
         use_case_owner=None,
         agent_owner="agent-owner@example.com",
         provider_version_id=None,
+        environment=settings.maisa_workers_environment,
     )
     auron.create_agent.assert_not_awaited()
 
@@ -191,6 +193,7 @@ async def test_run_looks_up_use_case_owner_from_intermediate_table():
         use_case_owner="use-case-owner@example.com",
         agent_owner="agent-owner@example.com",
         provider_version_id=None,
+        environment=settings.maisa_workers_environment,
     )
 
 
@@ -234,6 +237,7 @@ async def test_run_looks_up_use_case_owner_from_noxus_intermediate_table():
         use_case_owner="noxus-owner@example.com",
         agent_owner="agent-owner@example.com",
         provider_version_id=None,
+        environment=None,
     )
 
 
@@ -336,6 +340,7 @@ async def test_ingest_worker_passes_provider_version_id_through_to_create_agent(
         use_case_owner=None,
         agent_owner="agent-owner@example.com",
         provider_version_id="v2.1",
+        environment=settings.maisa_workers_environment,
     )
 
 
@@ -364,6 +369,7 @@ async def test_run_isolates_failure_and_keeps_processing_rest_of_batch():
         use_case_owner=None,
         agent_owner="agent-owner@example.com",
         provider_version_id=None,
+        environment=settings.maisa_workers_environment,
     )
     assert summary == {"total": 2, "succeeded": 1, "failed": 1}
 
@@ -394,6 +400,7 @@ async def test_run_retries_pending_worker_failures():
         use_case_owner=None,
         agent_owner="agent-owner@example.com",
         provider_version_id=None,
+        environment=settings.maisa_workers_environment,
     )
     sync_failures.mark_resolved.assert_awaited_once_with("W-OLD")
     assert summary == {"total": 1, "succeeded": 1, "failed": 0}
@@ -436,6 +443,7 @@ async def test_ingest_worker_creates_agent_and_notifies_when_use_case_missing():
         use_case_owner=None,
         agent_owner="agent-owner@example.com",
         provider_version_id=None,
+        environment=None,
     )
     notifier.notify_pending_regularization.assert_awaited_once_with(
         workspace_id="WS-1", worker_id="W-1"

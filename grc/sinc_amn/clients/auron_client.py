@@ -146,23 +146,56 @@ def _raise_for_status(response: httpx.Response) -> None:
     response.raise_for_status()
 
 
-# Enums del Agent con valor por defecto, por nombre: "172"
-# ("MRG-AIFacts-AIComponent:AI Component Level", "Autonomy Level") y "3333"
-# ("watsonx-AIComponent:Agent Role"). Sin la 172, OpenPages rechaza cualquier
-# PUT/POST del Agent (OP-03374 "Property 172 is required").
+# Enums del Agent con valor por defecto, por nombre (portable entre
+# entornos: los ids de los valores cambian de PRE a PRO):
+# - "172" ("MRG-AIFacts-AIComponent:AI Component Level", "Autonomy Level") y
+#   "3333" ("watsonx-AIComponent:Agent Role"): configurables. Sin la 172,
+#   OpenPages rechaza cualquier PUT/POST del Agent (OP-03374 "Property 172
+#   is required").
+# - "3966" ("Santander-Fields-Agent:AI Solution Origin"), "3332"
+#   ("watsonx-AIComponent:Agent Platform") y "3334"
+#   ("watsonx-AIComponent:Build origin"): fijos segun el mapeo de Auron.
 def _default_enum_fields() -> dict[str, dict]:
     return {
-        field_id: {
-            "id": field_id,
-            "dataType": "ENUM_TYPE",
-            "hasChanged": True,
-            "enumValue": {"name": value},
-        }
+        field_id: _enum_field(field_id, value)
         for field_id, value in (
             ("172", settings.auron_agent_autonomy_level),
             ("3333", settings.auron_agent_role),
+            ("3966", "GAIP Solution"),
+            ("3332", "Other"),
+            ("3334", "Third party"),
         )
     }
+
+
+def _enum_field(field_id: str, value: str) -> dict:
+    return {
+        "id": field_id,
+        "dataType": "ENUM_TYPE",
+        "hasChanged": True,
+        "enumValue": {"name": value},
+    }
+
+
+# "3288" ("Santander-Fields-Agent:Status", "Technical Status"): entorno del
+# proveedor -> valor del enum en OpenPages.
+_TECHNICAL_STATUS_BY_ENVIRONMENT = {
+    "DEV": "Development",
+    "PRE": "Preproduction",
+    "PRO": "Production",
+}
+
+
+def _technical_status_fields(environment: str | None) -> list[dict]:
+    if environment is None:
+        return []
+    status = _TECHNICAL_STATUS_BY_ENVIRONMENT.get(environment.upper())
+    if status is None:
+        logger.warning(
+            "auron: entorno %r sin Technical Status (3288), no se envia", environment
+        )
+        return []
+    return [_enum_field("3288", status)]
 
 
 _TOKEN_EXPIRY_BUFFER_SECONDS = 60
@@ -620,6 +653,7 @@ class AuronClient:
         use_case_owner: str | None,
         agent_owner: str | None,
         provider_version_id: str | None,
+        environment: str | None = None,
     ) -> dict:
         """Da de alta un nuevo Agent en OpenPages y lo enlaza al caso de uso.
 
@@ -677,8 +711,12 @@ class AuronClient:
           igual que `"3293"` (confirmado). Obligatorio para OpenPages.
         - `"172"` (enum "Autonomy Level") = `settings.auron_agent_autonomy_level`
           (obligatorio para OpenPages) y `"3333"` (enum "Agent Role") =
-          `settings.auron_agent_role`. `update_agent` solo los envia si el
-          Agent aun no tiene valor.
+          `settings.auron_agent_role`, y los fijos `"3966"` (GAIP Solution),
+          `"3332"` (Other) y `"3334"` (Third party). `update_agent` solo los
+          envia si el Agent aun no tiene valor.
+        - `"3288"` (enum "Technical Status") = `environment` del proveedor
+          (`_TECHNICAL_STATUS_BY_ENVIRONMENT`), en el alta y en cada update.
+          Sin `environment` (Noxus) no se envia.
 
         Confirmado (equipo Auron/IBM): `"3405"` (cuenta cloud) y `"3408"`
         (API ID / modelo LLM) NO van en el Agent sino en el caso de uso -
@@ -738,6 +776,7 @@ class AuronClient:
                         "value": agent_owner,
                     },
                     *_default_enum_fields().values(),
+                    *_technical_status_fields(environment),
                 ]
             },
         }
@@ -755,6 +794,7 @@ class AuronClient:
         use_case_owner: str | None,
         agent_owner: str | None,
         provider_version_id: str | None,
+        environment: str | None = None,
     ) -> dict:
         """Actualiza los campos de un Agent existente en OpenPages (name,
         description, y los 5 campos personalizados - ver `create_agent`).
@@ -828,6 +868,7 @@ class AuronClient:
         }
         if description:
             payload["description"] = description
+        payload["fields"]["field"] += _technical_status_fields(environment)
         payload["fields"]["field"] += await self._missing_default_enum_fields(agent_id)
 
         return await self.update_content(agent_id, payload)

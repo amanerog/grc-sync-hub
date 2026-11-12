@@ -530,6 +530,7 @@ async def test_create_agent_posts_expected_payload():
         use_case_owner="owner@example.com",
         agent_owner="agent-owner@example.com",
         provider_version_id="v1.0",
+        environment="PRE",
     )
 
     assert result == {"id": "35378"}
@@ -583,6 +584,10 @@ async def test_create_agent_posts_expected_payload():
                         "hasChanged": True,
                         "enumValue": {"name": settings.auron_agent_role},
                     },
+                    _enum("3966", "GAIP Solution"),
+                    _enum("3332", "Other"),
+                    _enum("3334", "Third party"),
+                    _enum("3288", "Preproduction"),
                 ]
             },
         }
@@ -670,6 +675,15 @@ async def test_create_agent_raises_when_provider_version_id_missing():
     await http_client.aclose()
 
 
+def _enum(field_id: str, name: str) -> dict:
+    return {
+        "id": field_id,
+        "dataType": "ENUM_TYPE",
+        "hasChanged": True,
+        "enumValue": {"name": name},
+    }
+
+
 def _make_update_content_client(
     captured: list[tuple[str, dict]], current_fields: list[dict] | None = None
 ) -> httpx.AsyncClient:
@@ -719,6 +733,7 @@ async def test_update_agent_puts_expected_payload_without_primary_parent_id():
         use_case_owner="owner@example.com",
         agent_owner="agent-owner@example.com",
         provider_version_id="v1.0",
+        environment="PRE",
     )
 
     assert result == {"id": "35378"}
@@ -754,6 +769,7 @@ async def test_update_agent_puts_expected_payload_without_primary_parent_id():
                     "hasChanged": True,
                     "value": "agent-owner@example.com",
                 },
+                _enum("3288", "Preproduction"),
                 {
                     "id": "172",
                     "dataType": "ENUM_TYPE",
@@ -766,6 +782,9 @@ async def test_update_agent_puts_expected_payload_without_primary_parent_id():
                     "hasChanged": True,
                     "enumValue": {"name": settings.auron_agent_role},
                 },
+                _enum("3966", "GAIP Solution"),
+                _enum("3332", "Other"),
+                _enum("3334", "Third party"),
             ]
         },
     }
@@ -796,8 +815,30 @@ async def test_update_agent_keeps_existing_enum_values():
 
     _, payload = captured[0]
     assert [field["id"] for field in payload["fields"]["field"]] == [
-        "3261", "3293", "3290", "179", "3333"
+        "3261", "3293", "3290", "179", "3333", "3966", "3332", "3334"
     ]
+
+    await http_client.aclose()
+
+
+async def test_update_agent_skips_technical_status_for_unknown_environment():
+    captured: list[tuple[str, dict]] = []
+    http_client = _make_update_content_client(captured)
+    auron = AuronClient(client=http_client)
+
+    await auron.update_agent(
+        agent_id="35378",
+        tenant="maisa",
+        name="Agente de prueba",
+        description=None,
+        use_case_owner=None,
+        agent_owner="agent-owner@example.com",
+        provider_version_id="v1.0",
+        environment="QA",
+    )
+
+    _, payload = captured[0]
+    assert "3288" not in [field["id"] for field in payload["fields"]["field"]]
 
     await http_client.aclose()
 
