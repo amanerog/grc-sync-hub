@@ -150,6 +150,23 @@ async def test_get_updated_workers_maps_worker_manager_to_worker():
     assert w.model_id == "eu.anthropic.claude-opus-4-5"
 
 
+async def test_get_updated_workers_without_day_returns_all_agents():
+    mongo = _fake_mongo(
+        worker=[
+            _version("WM1", 1, "DEPLOYED", datetime(2025, 1, 1)),
+            _version("WM2", 1, "DEPLOYED", datetime(2026, 9, 2)),
+        ],
+        worker_manager=[_manager("WM1"), _manager("WM2")],
+        label=[],
+        user=[{"user_id": "U1", "email": "owner@example.com"}],
+    )
+
+    workers = await MaisaClient(mongo_client=mongo).get_updated_workers(None)
+
+    assert [w.worker_id for w in workers] == ["WM1", "WM2"]
+    assert all(w.updated_at == date.today() for w in workers)
+
+
 async def test_get_updated_workers_filters_out_non_matching_agents():
     day = date(2026, 10, 18)
     changed = datetime(2026, 10, 18, 12, 0)

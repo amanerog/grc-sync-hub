@@ -153,7 +153,8 @@ class MaisaClient:
                         manager["worker_manager"],
                         [label_names.get(lid) for lid in manager.get("label_ids") or []],
                     ),
-                    updated_at=day,
+                    # Carga inicial (sin dia): el dia en que se procesa.
+                    updated_at=day or date.today(),
                     agent_name=manager.get("worker_manager_name"),
                     agent_owner=emails.get(manager.get("worker_manager_user")),
                     provider_version_id=str(version["worker_version"]),
