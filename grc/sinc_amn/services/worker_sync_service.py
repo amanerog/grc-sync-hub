@@ -77,7 +77,14 @@ class WorkerSyncService:
         # 2AB: procesar la informacion combinada de ambos origenes.
         results = [await self._ingest_worker(worker) for worker in workers]
 
-        retried_workers = await self._sync_failures.get_pending()
+        # Los fallos de este mismo run ya estan en la tabla: no se reintentan
+        # hasta el siguiente (ni los pendientes que hoy ya venian en el batch).
+        processed = {worker.worker_id for worker in workers}
+        retried_workers = [
+            worker
+            for worker in await self._sync_failures.get_pending()
+            if worker.worker_id not in processed
+        ]
         results.extend(
             [await self._ingest_worker(worker) for worker in retried_workers]
         )
@@ -148,6 +155,28 @@ class WorkerSyncService:
         )
         return use_case_id, True
 
+    async def _find_agent(self, worker: Worker) -> dict | None:
+        """El Agent del worker (`{"id", "primaryParentId"}`), o None si no
+        existe.
+
+        Si no cuelga de ningun caso de uso del tenant pero existe un Agent
+        con su worker_id, se devuelve sin `primaryParentId` para asociarlo
+        en vez de crear otro: pasa si una reasociacion se quedo a medias
+        (dissociate hecho, associate fallido, p.ej. por un 429).
+        """
+        agent = await self._auron.get_agent_by_worker_id(worker.worker_id, worker.tenant)
+        if agent is not None:
+            return agent
+        orphan_id = await self._auron.get_agent_id_by_worker_id(worker.worker_id)
+        if orphan_id is None:
+            return None
+        logger.warning(
+            "worker_sync: Agent %s del worker %s sin caso de uso, se asocia",
+            orphan_id,
+            worker.worker_id,
+        )
+        return {"id": orphan_id, "primaryParentId": None}
+
     async def _get_use_case_owner(
         self, worker: Worker, use_case_id: str
     ) -> str | None:
@@ -202,13 +231,15 @@ class WorkerSyncService:
                 environment=_environment(worker),
             )
         old_use_case_id = agent.get("primaryParentId")
-        if old_use_case_id and old_use_case_id != use_case_id:
+        if old_use_case_id != use_case_id:
             # Confirmado (equipo Auron/IBM): el caso de uso
             # vinculado no se puede cambiar en un update_agent
             # (PUT) ni sobrescribiendo la asociacion - hay que
             # borrar la asociacion vieja y crear la nueva. No hace
-            # falta borrar/recrear el Agent entero.
-            await self._auron.dissociate(agent["id"], old_use_case_id)
+            # falta borrar/recrear el Agent entero. Sin caso de uso
+            # viejo (Agent huerfano, ver _find_agent) solo se asocia.
+            if old_use_case_id:
+                await self._auron.dissociate(agent["id"], old_use_case_id)
             await self._auron.associate(
                 agent["id"],
                 use_case_id,
@@ -262,9 +293,7 @@ class WorkerSyncService:
         error_message = ""
         try:
             use_case_id, is_generic = await self._resolve_use_case(worker)
-            agent = await self._auron.get_agent_by_worker_id(
-                worker.worker_id, worker.tenant
-            )
+            agent = await self._find_agent(worker)
 
             use_case_owner = await self._get_use_case_owner(worker, use_case_id)
             agent = await self._upsert_agent(worker, agent, use_case_id, use_case_owner)

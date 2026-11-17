@@ -1099,3 +1099,56 @@ async def test_contents_calls_retry_once_on_401(monkeypatch):
     assert statuses == []
 
     await http_client.aclose()
+
+
+async def test_request_retries_429_with_backoff(monkeypatch):
+    delays: list[float] = []
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+
+    monkeypatch.setattr(auron_client.asyncio, "sleep", fake_sleep)
+    responses = iter(
+        [
+            httpx.Response(429, headers={"Retry-After": "7"}),
+            httpx.Response(429),
+            httpx.Response(200, json={"id": "1"}),
+        ]
+    )
+    http_client = httpx.AsyncClient(
+        base_url=settings.auron_base_url,
+        transport=httpx.MockTransport(lambda request: next(responses)),
+    )
+    auron = AuronClient(client=http_client)
+
+    response = await auron._request("GET", "/grc/api/contents/1")
+
+    assert response.status_code == 200
+    assert delays == [7.0, 5.0]
+
+    await http_client.aclose()
+
+
+async def test_request_gives_up_after_429_retries(monkeypatch):
+    async def fake_sleep(seconds):
+        pass
+
+    monkeypatch.setattr(auron_client.asyncio, "sleep", fake_sleep)
+    calls: list[int] = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(429)
+
+    http_client = httpx.AsyncClient(
+        base_url=settings.auron_base_url, transport=httpx.MockTransport(handler)
+    )
+    auron = AuronClient(client=http_client)
+
+    response = await auron._request("GET", "/grc/api/contents/1")
+
+    assert response.status_code == 429
+    assert len(calls) == 1 + len(auron_client._TOO_MANY_REQUESTS_DELAYS_SECONDS)
+
+    await http_client.aclose()
+

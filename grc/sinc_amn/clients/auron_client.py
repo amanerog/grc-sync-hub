@@ -146,6 +146,14 @@ def _raise_for_status(response: httpx.Response) -> None:
     response.raise_for_status()
 
 
+def _retry_after_seconds(response: httpx.Response) -> float:
+    """Segundos de la cabecera `Retry-After` (solo el formato numerico), o 0."""
+    try:
+        return float(response.headers.get("Retry-After", 0))
+    except ValueError:
+        return 0.0
+
+
 # Enums del Agent con valor por defecto, por nombre (portable entre
 # entornos: los ids de los valores cambian de PRE a PRO):
 # - "172" ("MRG-AIFacts-AIComponent:AI Component Level", "Autonomy Level") y
@@ -203,6 +211,10 @@ _TOKEN_EXPIRY_BUFFER_SECONDS = 60
 # veces da 401 y la misma, segundos despues, 200 - el token tarda en ser
 # valido en OpenPages. Se reintenta una vez tras esta espera.
 _UNAUTHORIZED_RETRY_DELAY_SECONDS = 2.0
+# Visto en la carga inicial (~600 agentes seguidos): OpenPages limita el
+# ritmo de peticiones con 429. Se espera y se reintenta con estas pausas (o
+# la que pida `Retry-After`, si es mayor) antes de dar el error por bueno.
+_TOO_MANY_REQUESTS_DELAYS_SECONDS = (2.0, 5.0, 10.0, 20.0, 40.0)
 
 
 class AuronClient:
@@ -261,7 +273,8 @@ class AuronClient:
         }
 
     async def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
-        """Peticion a OpenPages, reintentando una vez si da 401.
+        """Peticion a OpenPages, reintentando una vez si da 401 y varias, con
+        pausas crecientes, si da 429.
 
         Visto en real: justo despues de pedir un token nuevo, la primera
         llamada a OpenPages (Query API o /grc/api/contents) puede dar 401 con
@@ -276,6 +289,13 @@ class AuronClient:
                 _UNAUTHORIZED_RETRY_DELAY_SECONDS,
             )
             await asyncio.sleep(_UNAUTHORIZED_RETRY_DELAY_SECONDS)
+            response = await self._client.request(method, url, **kwargs)
+        for delay in _TOO_MANY_REQUESTS_DELAYS_SECONDS:
+            if response.status_code != httpx.codes.TOO_MANY_REQUESTS:
+                break
+            delay = max(delay, _retry_after_seconds(response))
+            logger.warning("auron: 429 en %s %s, se reintenta en %ss", method, url, delay)
+            await asyncio.sleep(delay)
             response = await self._client.request(method, url, **kwargs)
         return response
 

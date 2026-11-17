@@ -51,8 +51,12 @@ def _service(
     if sync_failures is None:
         sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
         sync_failures.get_pending.return_value = []
+    auron = auron or AsyncMock(spec=AuronClient)
+    if not isinstance(auron.get_agent_id_by_worker_id.return_value, str):
+        # Por defecto no hay Agents huerfanos.
+        auron.get_agent_id_by_worker_id.return_value = None
     return WorkerSyncService(
-        auron=auron or AsyncMock(spec=AuronClient),
+        auron=auron,
         maisa=maisa or AsyncMock(spec=MaisaClient),
         noxus=noxus or AsyncMock(spec=NoxusClient),
         monitoring=monitoring or AsyncMock(spec=MonitoringStore),
@@ -721,4 +725,39 @@ async def test_run_full_load_asks_maisa_for_all_workers_and_skips_noxus(monkeypa
     maisa.get_updated_workers.assert_awaited_once_with(None)
     noxus.get_updated_workers.assert_not_awaited()
     assert summary == {"total": 0, "succeeded": 0, "failed": 0}
+
+
+async def test_ingest_worker_associates_orphan_agent_instead_of_creating_another():
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_cases_by_resource_ids.return_value = [object()]
+    auron.get_agent_by_worker_id.return_value = None
+    auron.get_agent_id_by_worker_id.return_value = "agent-1"
+    auron.update_agent.return_value = {"id": "agent-1"}
+
+    ok = await _service(auron=auron)._ingest_worker(_worker(use_case_id="559"))
+
+    assert ok is True
+    auron.create_agent.assert_not_awaited()
+    auron.dissociate.assert_not_awaited()
+    auron.associate.assert_awaited_once_with(
+        "agent-1", "559", association_definition_id="966", association_type="PARENT"
+    )
+    auron.update_agent.assert_awaited_once()
+
+
+async def test_run_does_not_retry_workers_already_processed_in_this_run():
+    worker = _worker(worker_id="W-1")
+    maisa = AsyncMock(spec=MaisaClient)
+    maisa.get_updated_workers.return_value = [worker]
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_cases_by_resource_ids.side_effect = RuntimeError("boom")
+    sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
+    # El fallo de este run ya aparece como pendiente.
+    sync_failures.get_pending.return_value = [worker]
+
+    summary = await _service(
+        auron=auron, maisa=maisa, sync_failures=sync_failures
+    ).run()
+
+    assert summary == {"total": 1, "succeeded": 0, "failed": 1}
 
