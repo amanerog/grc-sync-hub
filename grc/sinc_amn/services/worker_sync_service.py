@@ -5,13 +5,10 @@ from sinc_amn.clients.auron_client import AuronClient
 from sinc_amn.clients.maisa_client import MaisaClient
 from sinc_amn.clients.noxus_client import NoxusClient
 from sinc_amn.config import settings
-from sinc_amn.core.business_entity import OTHER, business_entity_for
+from sinc_amn.core.business_entity import business_entity_for
 from sinc_amn.core.monitoring import MonitoringStore
 from sinc_amn.core.notifications import AdminNotifier
 from sinc_amn.models.worker import Worker
-from sinc_amn.repositories.business_entity_repository import (
-    BusinessEntityRepository,
-)
 from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
 )
@@ -40,7 +37,6 @@ class WorkerSyncService:
         use_case_labels: UseCaseLabelRepository,
         noxus_use_case_labels: NoxusUseCaseLabelRepository,
         sync_failures: WorkerSyncFailureRepository,
-        business_entities: BusinessEntityRepository,
     ) -> None:
         self._auron = auron
         self._maisa = maisa
@@ -50,7 +46,6 @@ class WorkerSyncService:
         self._use_case_labels = use_case_labels
         self._noxus_use_case_labels = noxus_use_case_labels
         self._sync_failures = sync_failures
-        self._business_entities = business_entities
         # Casos de uso genericos ya buscados en este run, por (tenant, nombre).
         self._generic_use_cases: dict[tuple[str, str], str | None] = {}
 
@@ -106,12 +101,12 @@ class WorkerSyncService:
 
         Maisa: el del label `<ResourceID>_<nombre>` (ver
         MaisaClient.get_updated_workers) si existe en Auron. Si no hay label
-        o el caso de uso no existe, el generico de la Business Entity del
-        creador del agente: email -> datos de Workday -> BE
-        (`business_entity_for`) -> caso de uso llamado
-        `settings.auron_maisa_generic_use_case_name` en el Engagement de Maisa.
-        Si ese caso de uso no existe es un fallo del worker (se reintenta en
-        el siguiente run).
+        o el caso de uso no existe, el generico de la `entity` del agente en
+        Maisa: entity -> BE (`business_entity_for`, tabla de Auron; sin
+        mapeo, `settings.auron_other_business_entity`) -> caso de uso
+        llamado `settings.auron_maisa_generic_use_case_name` en el
+        Engagement de Maisa. Si ese caso de uso no existe es un fallo del
+        worker (se reintenta en el siguiente run).
 
         Noxus: su `use_case_id` o `settings.generic_use_case_id`.
         """
@@ -125,14 +120,9 @@ class WorkerSyncService:
         ):
             return worker.use_case_id, False
 
-        member = (
-            await self._business_entities.get_member(worker.agent_owner)
-            if worker.agent_owner
-            else None
+        business_entity = (
+            business_entity_for(worker.entity) or settings.auron_other_business_entity
         )
-        business_entity = business_entity_for(member)
-        if business_entity == OTHER:
-            business_entity = settings.auron_other_business_entity
         name = settings.auron_maisa_generic_use_case_name.format(
             business_entity=business_entity
         )
@@ -149,11 +139,12 @@ class WorkerSyncService:
             )
         logger.info(
             "worker_sync: worker %s sin caso de uso valido (label: %s) -> "
-            "generico %s de la BE %r",
+            "generico %s de la BE %r (entity %r)",
             worker.worker_id,
             worker.use_case_id,
             use_case_id,
             business_entity,
+            worker.entity,
         )
         return use_case_id, True
 

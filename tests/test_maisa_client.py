@@ -148,6 +148,7 @@ async def test_get_updated_workers_maps_worker_manager_to_worker():
     assert w.agent_owner == "owner@example.com"
     assert w.provider_version_id == "2"
     assert w.model_id == "eu.anthropic.claude-opus-4-5"
+    assert w.entity == "Spain"
 
 
 async def test_get_updated_workers_without_day_returns_all_agents():
@@ -165,6 +166,27 @@ async def test_get_updated_workers_without_day_returns_all_agents():
 
     assert [w.worker_id for w in workers] == ["WM1", "WM2"]
     assert all(w.updated_at == date.today() for w in workers)
+
+
+async def test_get_updated_workers_includes_every_entity():
+    day = date(2026, 10, 18)
+    changed = datetime(2026, 10, 18, 12, 0)
+    mongo = _fake_mongo(
+        worker=[
+            _version("WM-es", 1, "DEPLOYED", changed),
+            _version("WM-br", 1, "DEPLOYED", changed, entity="Brazil"),
+        ],
+        worker_manager=[_manager("WM-es"), _manager("WM-br", entity="Brazil")],
+        label=[],
+        user=[],
+    )
+
+    workers = await MaisaClient(mongo_client=mongo).get_updated_workers(day)
+
+    assert {(w.worker_id, w.entity) for w in workers} == {
+        ("WM-es", "Spain"),
+        ("WM-br", "Brazil"),
+    }
 
 
 async def test_get_updated_workers_filters_out_non_matching_agents():

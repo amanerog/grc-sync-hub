@@ -11,10 +11,6 @@ from sinc_amn.core.notifications import AdminNotifier
 from sinc_amn.models.noxus_use_case_label import NoxusUseCaseLabel
 from sinc_amn.models.use_case_label import UseCaseLabel
 from sinc_amn.models.worker import Worker
-from sinc_amn.models.workday_member import WorkdayMember
-from sinc_amn.repositories.business_entity_repository import (
-    BusinessEntityRepository,
-)
 from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
 )
@@ -43,7 +39,6 @@ def _worker(**overrides) -> Worker:
 def _service(
     auron=None, maisa=None, noxus=None, monitoring=None, notifier=None,
     use_case_labels=None, noxus_use_case_labels=None, sync_failures=None,
-    business_entities=None,
 ):
     if use_case_labels is None:
         # Por defecto no hay owner en la tabla intermedia (los tests que lo
@@ -56,10 +51,6 @@ def _service(
     if sync_failures is None:
         sync_failures = AsyncMock(spec=WorkerSyncFailureRepository)
         sync_failures.get_pending.return_value = []
-    if business_entities is None:
-        # Por defecto el creador no esta en Workday (BE "Other").
-        business_entities = AsyncMock(spec=BusinessEntityRepository)
-        business_entities.get_member.return_value = None
     return WorkerSyncService(
         auron=auron or AsyncMock(spec=AuronClient),
         maisa=maisa or AsyncMock(spec=MaisaClient),
@@ -69,7 +60,6 @@ def _service(
         use_case_labels=use_case_labels,
         noxus_use_case_labels=noxus_use_case_labels,
         sync_failures=sync_failures,
-        business_entities=business_entities,
     )
 
 
@@ -536,33 +526,23 @@ async def test_ingest_worker_isolates_sync_failures_tracking_error_too():
     assert ok is True
 
 
-async def test_ingest_worker_uses_business_entity_generic_when_maisa_label_missing():
-    worker = _worker(use_case_id=None)
+async def test_ingest_worker_uses_entity_generic_when_maisa_label_missing():
+    worker = _worker(use_case_id=None, entity="Germany")
     auron = AsyncMock(spec=AuronClient)
     auron.get_agent_by_worker_id.return_value = None
     auron.create_agent.return_value = {"id": "new-agent"}
-    business_entities = AsyncMock(spec=BusinessEntityRepository)
-    business_entities.get_member.return_value = WorkdayMember(
-        email="agent-owner@example.com",
-        business_unit="HQ",
-        position_level_2="Global & Corporate HQ",
-        functional_group_1="Internal Audit",
-    )
-    auron.get_use_case_id_by_name.return_value = "GEN-AUDIT"
+    auron.get_use_case_id_by_name.return_value = "GEN-CONSUMER"
     notifier = AsyncMock(spec=AdminNotifier)
 
-    service = _service(
-        auron=auron, notifier=notifier, business_entities=business_entities
-    )
+    service = _service(auron=auron, notifier=notifier)
     ok = await service._ingest_worker(worker)
 
     assert ok is True
-    business_entities.get_member.assert_awaited_once_with("agent-owner@example.com")
     auron.get_use_case_id_by_name.assert_awaited_once_with(
-        "To be regularized - Maisa - HQ - Auditory", "maisa"
+        "To be regularized - Maisa - Consumer", "maisa"
     )
     _, kwargs = auron.create_agent.await_args
-    assert kwargs["use_case_id"] == "GEN-AUDIT"
+    assert kwargs["use_case_id"] == "GEN-CONSUMER"
     notifier.notify_pending_regularization.assert_awaited_once_with(
         workspace_id="WS-1", worker_id="W-1"
     )
@@ -609,9 +589,9 @@ async def test_ingest_worker_uses_generic_when_maisa_use_case_not_in_auron():
 
     assert ok is True
     auron.get_use_cases_by_resource_ids.assert_awaited_once_with(["559"], "maisa")
-    # Creador sin datos en Workday -> "Other" -> HQ - Others (PRE).
+    # Sin entity -> cajon de sastre "Other".
     auron.get_use_case_id_by_name.assert_awaited_once_with(
-        "To be regularized - Maisa - HQ - Others", "maisa"
+        "To be regularized - Maisa - Other", "maisa"
     )
     _, kwargs = auron.create_agent.await_args
     assert kwargs["use_case_id"] == "GEN-HQ-OTHERS"
@@ -666,7 +646,7 @@ async def test_ingest_worker_fails_when_generic_use_case_does_not_exist():
     assert ok is False
     auron.create_agent.assert_not_awaited()
     _, error = sync_failures.record_failure.await_args.args
-    assert "To be regularized - Maisa - HQ - Others" in error
+    assert "To be regularized - Maisa - Other" in error
 
 
 async def test_ingest_worker_counts_use_case_lookup_error_as_failure():
@@ -734,7 +714,6 @@ async def test_run_full_load_asks_maisa_for_all_workers_and_skips_noxus(monkeypa
         use_case_labels=AsyncMock(spec=UseCaseLabelRepository),
         noxus_use_case_labels=AsyncMock(spec=NoxusUseCaseLabelRepository),
         sync_failures=sync_failures,
-        business_entities=AsyncMock(spec=BusinessEntityRepository),
     )
 
     summary = await service.run(day=date(2026, 11, 6), full_load=True)

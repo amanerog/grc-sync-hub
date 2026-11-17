@@ -1,5 +1,6 @@
 """Comprueba que existen en Auron los casos de uso genericos de cada
-Business Entity (Flujo 2, `settings.auron_maisa_generic_use_case_name`).
+Business Entity de la tabla de equivalencias de Maisa, mas el cajon de
+sastre (Flujo 2, `settings.auron_maisa_generic_use_case_name`).
 
 Solo lectura. Usa la misma busqueda que el servicio (nombre exacto dentro
 del Engagement de Maisa) y la misma configuracion de Auron:
@@ -15,22 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "grc"))
 
 from sinc_amn.clients.auron_client import AuronClient  # noqa: E402
 from sinc_amn.config import settings  # noqa: E402
-from sinc_amn.core.business_entity import (  # noqa: E402
-    BUSINESS_UNIT_TO_BE,
-    FG1_TO_BE,
-    HQ_OTHERS,
-    OTHER,
-    POSITION_LEVEL2_TO_BE,
-)
+from sinc_amn.core.business_entity import MAISA_ENTITY_TO_BE  # noqa: E402
 
 
 async def main() -> None:
-    entities = (
-        set(POSITION_LEVEL2_TO_BE.values())
-        | set(FG1_TO_BE.values())
-        | set(BUSINESS_UNIT_TO_BE.values())
-        | {HQ_OTHERS, settings.auron_other_business_entity}
-    ) - {OTHER}
+    entities = set(MAISA_ENTITY_TO_BE.values()) | {settings.auron_other_business_entity}
 
     client = AuronClient()
     missing = []

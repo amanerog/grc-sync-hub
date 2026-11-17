@@ -79,8 +79,9 @@ class MaisaClient:
           worker no cambie (`update_user` siempre "PROFILER").
         - Solo agentes con una version DEPLOYED (la mas alta es la que se
           envia como `provider_version_id`), no borrados ni excluidos
-          (`is_user_excluded`), de `settings.maisa_workers_entity`/
-          `maisa_workers_environment` (la BBDD mezcla entidades/entornos).
+          (`is_user_excluded`), de `settings.maisa_workers_environment` (la
+          BBDD mezcla entornos) y de cualquier entidad (`entity`, va en el
+          Worker: decide el caso de uso generico).
         - Caso de uso: `worker_manager.label_ids` -> `label.name`, con
           formato acordado `<ResourceID>_<nombre>` - el prefijo numerico es
           el Resource ID del caso de uso en OpenPages. Sin label con ese
@@ -90,10 +91,7 @@ class MaisaClient:
         - Modelo: `model.name` de la version DEPLOYED (no el de
           `worker_manager.model`, que no coincide con el desplegado).
         """
-        scope = {
-            "entity": settings.maisa_workers_entity,
-            "environment": settings.maisa_workers_environment,
-        }
+        scope = {"environment": settings.maisa_workers_environment}
         changed = {}
         if day is not None:
             start = datetime.combine(day, time.min)
@@ -159,6 +157,7 @@ class MaisaClient:
                     agent_owner=emails.get(manager.get("worker_manager_user")),
                     provider_version_id=str(version["worker_version"]),
                     model_id=(version.get("model") or {}).get("name"),
+                    entity=manager.get("entity"),
                 )
             )
         return workers

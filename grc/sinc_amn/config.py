@@ -54,11 +54,11 @@ class Settings(BaseSettings):
     # por el dump de Maisa (s3://a2k-externaldata/dump_2026-10-15/...),
     # restaurado en DEV con este mismo nombre.
     maisa_documentdb_database: str = "gpp_maisa_metrics"
-    # Flujo 2 (1A): la BBDD de Maisa mezcla entidades (Spain, Brazil...) y
-    # entornos (DEV/PRE/PRO) - solo se sincronizan los workers de esta
-    # entidad/entorno. Defaults = despliegue actual (Auron PRE, Spain);
-    # sobreescribir en PRO (SINC_AMN_MAISA_WORKERS_ENVIRONMENT=PRO).
-    maisa_workers_entity: str = "Spain"
+    # Flujo 2 (1A): la BBDD de Maisa mezcla entornos (DEV/PRE/PRO) - solo se
+    # sincronizan los workers de este entorno, de todas las entidades (cada
+    # una va a su generico, ver core/business_entity.py). Default =
+    # despliegue actual (Auron PRE); sobreescribir en PRO
+    # (SINC_AMN_MAISA_WORKERS_ENVIRONMENT=PRO).
     maisa_workers_environment: str = "PRE"
 
     # Noxus
@@ -108,9 +108,9 @@ class Settings(BaseSettings):
     # a mano por Auron dentro del Engagement de Maisa), que se busca por
     # nombre.
     auron_maisa_generic_use_case_name: str = "To be regularized - Maisa - {business_entity}"
-    # BE que se usa cuando el arbol de decision da "Other" (sin mapeo o
-    # creador sin datos en Workday). En PRE no existe "Other" (default).
-    auron_other_business_entity: str = "HQ - Others"
+    # BE ("cajon de sastre") de los agentes cuya entity de Maisa no esta en
+    # la tabla de equivalencias (core/business_entity.py) o viene vacia.
+    auron_other_business_entity: str = "Other"
     # Field "3405" ("Identifier of the cloud account... en Development").
     # Confirmado que va en el caso de uso, no en el Agent
     # (WorkerSyncService._update_use_case; sin valor no se envia). Pendiente de confirmar

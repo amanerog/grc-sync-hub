@@ -315,28 +315,26 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
        aunque el worker no cambie.
      - Solo agentes con una versión `DEPLOYED` (la más alta va como
        `provider_version_id`), `is_deleted=false`, sin
-       `is_user_excluded`, de `settings.maisa_workers_entity`/
-       `maisa_workers_environment` (la BBDD mezcla entidades y entornos;
-       defaults `Spain`/`PRE`).
+       `is_user_excluded`, de `settings.maisa_workers_environment` (la
+       BBDD mezcla entornos; default `PRE`) y de todas las entidades.
      - **Caso de uso:** `worker_manager.label_ids` → `label.name`, con
        formato acordado `<ResourceID>_<nombre>`; el prefijo numérico es el
        Resource ID del caso de uso. **Si no hay label con ese formato o el
        caso de uso no existe en Auron, el Agent se cuelga del caso de uso
-       genérico de la Business Entity (BE) de su creador**
+       genérico de la Business Entity (BE) de su entidad en Maisa**
        (`WorkerSyncService._resolve_use_case`):
-       email del creador → datos de Workday (`workday_members`) → BE con
-       el árbol de decisión de Auron (`core/business_entity.py`) → caso
-       de uso llamado `settings.auron_maisa_generic_use_case_name` (`To be
-       regularized - Maisa - {business_entity}`), creado a mano por Auron uno
-       por BE y buscado por nombre dentro del Engagement del tenant
-       (`AuronClient.get_use_case_id_by_name`, cacheado por run). Creador
-       sin datos en Workday o sin mapeo → BE "Other", que se sustituye por
-       `settings.auron_other_business_entity` (`HQ - Others`: en PRE no
-       existe "Other"). Si el caso de uso genérico no existe es un fallo
-       del worker y se reintenta. Cuando el worker llega después con su
-       label, el Agent se reasocia al caso de uso correcto (`dissociate` +
-       `associate`). `workday_members` se carga con
-       `scripts/load_reference_data.py`. Pendiente: el envío real de la
+       `worker_manager.entity` → BE con la tabla de equivalencias de Auron
+       (`core/business_entity.py`; p.ej. `Spain` → `Santander ES`,
+       `Consumer`/`Germany` → `Consumer`, `HQ`/`HQNEW` → `HQ - Others`) →
+       caso de uso llamado `settings.auron_maisa_generic_use_case_name`
+       (`To be regularized - Maisa - {business_entity}`), creado a mano por
+       Auron uno por BE y buscado por nombre dentro del Engagement del
+       tenant (`AuronClient.get_use_case_id_by_name`, cacheado por run).
+       Entity vacía o sin mapeo → `settings.auron_other_business_entity`
+       (`Other`, el cajón de sastre). Si el caso de uso genérico no existe
+       es un fallo del worker y se reintenta. Cuando el worker llega
+       después con su label, el Agent se reasocia al caso de uso correcto
+       (`dissociate` + `associate`). Pendiente: el envío real de la
        notificación 7A (hoy solo deja un aviso en el log).
      - Owner del Agent: `user.email` del `user_id` =
        `worker_manager.worker_manager_user`.
@@ -578,7 +576,8 @@ sinc_amn/
 │   ├── 0006_create_noxus_use_case_labels.sql
 │   ├── 0007_create_worker_sync_failures.sql
 │   ├── 0008_add_model_id_to_worker_sync_failures.sql
-│   └── 0009_create_workday_members.sql
+│   ├── 0009_create_workday_members.sql       # ya sin uso
+│   └── 0010_add_entity_to_worker_sync_failures.sql
 └── tests/
 ```
 

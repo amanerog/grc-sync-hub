@@ -34,6 +34,10 @@ class Worker(BaseModel):
     # field "3408" (Santander Fields:API ID) del caso de uso, no del Agent
     # (WorkerSyncService._update_use_case).
     model_id: str | None = None
+    # Entidad del agente en el proveedor (Maisa: `worker_manager.entity`, p.ej.
+    # "Spain"). Decide el caso de uso generico cuando no hay label valido
+    # (core/business_entity.py).
+    entity: str | None = None
     # TODO: completar con el resto de campos del contrato real de Maisa/Noxus,
     # si aparecen mas al confirmarlo. El field "3405" (cuenta cloud, en el
     # caso de uso) NO es un dato de Worker - settings.aws_account_id.

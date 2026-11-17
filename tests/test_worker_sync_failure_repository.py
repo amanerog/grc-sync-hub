@@ -20,6 +20,7 @@ def _worker(**overrides) -> Worker:
         agent_owner="agent-owner@example.com",
         provider_version_id="v1.0",
         model_id="eu.anthropic.claude-opus-4-5",
+        entity="Spain",
     )
     data.update(overrides)
     return Worker(**data)
@@ -46,7 +47,8 @@ async def test_record_failure_executes_upsert_with_worker_snapshot():
     assert args[7] == "agent-owner@example.com"
     assert args[8] == "v1.0"
     assert args[9] == "eu.anthropic.claude-opus-4-5"
-    assert args[10] == "boom"
+    assert args[10] == "Spain"
+    assert args[11] == "boom"
 
 
 async def test_mark_resolved_executes_update_with_worker_id():
@@ -75,6 +77,7 @@ async def test_get_pending_reconstructs_workers_from_snapshot():
                 "agent_owner": "agent-owner@example.com",
                 "provider_version_id": "v1.0",
                 "model_id": "eu.anthropic.claude-opus-4-5",
+                "entity": "Spain",
             },
             {
                 "worker_id": "W-2",
@@ -87,6 +90,7 @@ async def test_get_pending_reconstructs_workers_from_snapshot():
                 "agent_owner": None,
                 "provider_version_id": None,
                 "model_id": None,
+                "entity": None,
             },
         ]
     )
@@ -107,6 +111,7 @@ async def test_get_pending_reconstructs_workers_from_snapshot():
             agent_owner=None,
             provider_version_id=None,
             model_id=None,
+            entity=None,
         ),
     ]
     assert "resolved_at IS NULL" in conn.fetch_calls[0][0]

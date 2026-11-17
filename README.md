@@ -80,23 +80,18 @@ en orden: `0001_create_maisa_use_case_labels.sql`,
 `0006_create_noxus_use_case_labels.sql`,
 `0007_create_worker_sync_failures.sql`,
 `0008_add_model_id_to_worker_sync_failures.sql`,
-`0009_create_workday_members.sql`) — aplicarlas contra la instancia de
-RDS Postgres antes de levantar el servicio. Desde el pod, con
+`0009_create_workday_members.sql`,
+`0010_add_entity_to_worker_sync_failures.sql`) — aplicarlas contra la
+instancia de RDS Postgres antes de levantar el servicio. Desde el pod, con
 `scripts/apply_migrations.py`:
 
 ```
-kubectl exec -n <ns> <pod> -- python scripts/apply_migrations.py db/migrations/0009_create_workday_members.sql
+kubectl exec -n <ns> <pod> -- python scripts/apply_migrations.py db/migrations/0010_add_entity_to_worker_sync_failures.sql
 ```
 
-Flujo 2 necesita además los datos de Workday (`workday_members`) para
-elegir el caso de uso genérico de cada Business Entity. Se cargan desde el
-CSV con `scripts/load_reference_data.py`; el CSV llega por stdin, no se
-copia al pod ni se commitea (tiene datos personales). Cada carga sustituye
-entera la tabla:
-
-```
-kubectl exec -i -n <ns> <pod> -- python scripts/load_reference_data.py workday < miembros.csv
-```
+La tabla `workday_members` (0009) ya no la usa ningún flujo: el caso de uso
+genérico de Flujo 2 sale de la `entity` del agente en Maisa
+(`core/business_entity.py`).
 
 No commitear nunca valores reales de API key/token — son credenciales del
 IAM de IBM Cloud, rotables desde su consola si se filtran.

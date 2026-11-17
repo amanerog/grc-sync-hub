@@ -3,7 +3,7 @@
 Las migraciones ya van en la imagen, asi que se lanza desde fuera del pod
 pasando las rutas en el orden en que hay que aplicarlas:
 
-    kubectl exec -n <ns> <pod> -- python scripts/apply_migrations.py db/migrations/0009_create_workday_members.sql
+    kubectl exec -n <ns> <pod> -- python scripts/apply_migrations.py db/migrations/0010_add_entity_to_worker_sync_failures.sql
 
 Cada fichero se ejecuta tal cual y en una transaccion propia: si uno falla
 se para ahi, sin aplicar los siguientes. Usa la misma BBDD que el servicio
