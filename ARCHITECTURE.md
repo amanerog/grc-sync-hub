@@ -321,7 +321,11 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      - **Caso de uso:** `worker_manager.label_ids` → `label.name`, con
        formato acordado `<ResourceID>_<nombre>`; el prefijo numérico es el
        Resource ID del caso de uso. **Si no hay label con ese formato o el
-       caso de uso no existe en Auron, el Agent se cuelga del caso de uso
+       caso de uso no existe en Auron, se busca el agente en el Excel de
+       mapeos de Auron** (`core/worker_use_cases.py`: CSV por instancia de
+       OpenPages en `grc/sinc_amn/data/`, generado con
+       `scripts/build_worker_use_cases_csv.py`; hoy solo PRO) y se usa su
+       caso de uso si existe. **Si tampoco, el Agent se cuelga del caso de uso
        genérico de la Business Entity (BE) de su entidad en Maisa**
        (`WorkerSyncService._resolve_use_case`):
        `worker_manager.entity` → BE con la tabla de equivalencias de Auron

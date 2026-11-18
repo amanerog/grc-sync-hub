@@ -9,6 +9,7 @@ from sinc_amn.core.business_entity import business_entity_for
 from sinc_amn.core.monitoring import MonitoringStore
 from sinc_amn.core.notifications import AdminNotifier
 from sinc_amn.core.openpages_ids import openpages_id
+from sinc_amn.core.worker_use_cases import mapped_use_case_id
 from sinc_amn.models.worker import Worker
 from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
@@ -108,9 +109,9 @@ class WorkerSyncService:
         """Caso de uso del que cuelga el Agent: `(use_case_id, es_generico)`.
 
         Maisa: el del label `<ResourceID>_<nombre>` (ver
-        MaisaClient.get_updated_workers) si existe en Auron. Si no hay label
-        o el caso de uso no existe, el generico de la `entity` del agente en
-        Maisa: entity -> BE (`business_entity_for`, tabla de Auron; sin
+        MaisaClient.get_updated_workers) si existe en Auron. Si no, el del
+        Excel de mapeos de Auron (`mapped_use_case_id`) si existe. Si
+        tampoco, el generico de la `entity` del agente en Maisa: entity -> BE (`business_entity_for`, tabla de Auron; sin
         mapeo, `settings.auron_other_business_entity`) -> caso de uso
         llamado `settings.auron_maisa_generic_use_case_name` en el
         Engagement de Maisa. Si ese caso de uso no existe es un fallo del
@@ -127,6 +128,19 @@ class WorkerSyncService:
             [worker.use_case_id], worker.tenant
         ):
             return worker.use_case_id, False
+
+        mapped = mapped_use_case_id(worker.worker_id)
+        if mapped and await self._auron.get_use_cases_by_resource_ids(
+            [mapped], worker.tenant
+        ):
+            logger.info(
+                "worker_sync: worker %s sin label valida (%s) -> caso de uso %s "
+                "del Excel de mapeos",
+                worker.worker_id,
+                worker.use_case_id,
+                mapped,
+            )
+            return mapped, False
 
         business_entity = (
             business_entity_for(worker.entity) or settings.auron_other_business_entity

@@ -15,3 +15,5 @@ tools.tgz
 
 # CSV de referencia (Workday tiene datos personales): se cargan por stdin, no se commitean
 *.csv
+# Mapeos sin datos personales (solo ids), van con el micro.
+!grc/sinc_amn/data/*.csv

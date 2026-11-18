@@ -18,6 +18,7 @@ from sinc_amn.repositories.use_case_label_repository import UseCaseLabelReposito
 from sinc_amn.repositories.worker_sync_failure_repository import (
     WorkerSyncFailureRepository,
 )
+from sinc_amn.services import worker_sync_service
 from sinc_amn.services.worker_sync_service import WorkerSyncService
 
 
@@ -761,3 +762,64 @@ async def test_run_does_not_retry_workers_already_processed_in_this_run():
 
     assert summary == {"total": 1, "succeeded": 0, "failed": 1}
 
+
+
+async def test_ingest_worker_uses_excel_mapping_when_maisa_label_missing(monkeypatch):
+    monkeypatch.setattr(
+        worker_sync_service, "mapped_use_case_id", {"W-1": "71245"}.get
+    )
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_cases_by_resource_ids.return_value = [object()]
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+
+    ok = await _service(auron=auron)._ingest_worker(
+        _worker(use_case_id=None, entity="Brazil")
+    )
+
+    assert ok is True
+    auron.get_use_cases_by_resource_ids.assert_awaited_once_with(["71245"], "maisa")
+    auron.get_use_case_id_by_name.assert_not_awaited()
+    _, kwargs = auron.create_agent.await_args
+    assert kwargs["use_case_id"] == "71245"
+
+
+async def test_ingest_worker_prefers_label_over_excel_mapping(monkeypatch):
+    monkeypatch.setattr(
+        worker_sync_service, "mapped_use_case_id", {"W-1": "71245"}.get
+    )
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_cases_by_resource_ids.return_value = [object()]
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+
+    ok = await _service(auron=auron)._ingest_worker(_worker(use_case_id="559"))
+
+    assert ok is True
+    auron.get_use_cases_by_resource_ids.assert_awaited_once_with(["559"], "maisa")
+    _, kwargs = auron.create_agent.await_args
+    assert kwargs["use_case_id"] == "559"
+
+
+async def test_ingest_worker_falls_back_to_entity_when_mapped_use_case_missing(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        worker_sync_service, "mapped_use_case_id", {"W-1": "71245"}.get
+    )
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_cases_by_resource_ids.return_value = []
+    auron.get_use_case_id_by_name.return_value = "GEN-BR"
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+
+    ok = await _service(auron=auron)._ingest_worker(
+        _worker(use_case_id=None, entity="Brazil")
+    )
+
+    assert ok is True
+    auron.get_use_case_id_by_name.assert_awaited_once_with(
+        "To be regularized - Maisa - Santander BR", "maisa"
+    )
+    _, kwargs = auron.create_agent.await_args
+    assert kwargs["use_case_id"] == "GEN-BR"
