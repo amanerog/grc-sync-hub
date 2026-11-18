@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timedelta
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from sinc_amn.config import settings
+from sinc_amn.core.business_entity import is_skipped_entity
 from sinc_amn.models.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,8 @@ class MaisaClient:
           envia como `provider_version_id`), no borrados ni excluidos
           (`is_user_excluded`), de `settings.maisa_workers_environment` (la
           BBDD mezcla entornos) y de cualquier entidad (`entity`, va en el
-          Worker: decide el caso de uso generico).
+          Worker: decide el caso de uso generico) salvo las que no se
+          sincronizan (`business_entity.SKIPPED_ENTITIES`).
         - Caso de uso: `worker_manager.label_ids` -> `label.name`, con
           formato acordado `<ResourceID>_<nombre>` - el prefijo numerico es
           el Resource ID del caso de uso en OpenPages. Sin label con ese
@@ -138,9 +140,13 @@ class MaisaClient:
         }
 
         workers = []
+        skipped = 0
         for manager in managers:
             version = deployed.get(manager["worker_manager"])
             if version is None:
+                continue
+            if is_skipped_entity(manager.get("entity")):
+                skipped += 1
                 continue
             workers.append(
                 Worker(
@@ -160,6 +166,8 @@ class MaisaClient:
                     entity=manager.get("entity"),
                 )
             )
+        if skipped:
+            logger.info("maisa: %s agentes de entities que no se sincronizan", skipped)
         return workers
 
 

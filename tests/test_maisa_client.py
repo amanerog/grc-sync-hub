@@ -189,6 +189,24 @@ async def test_get_updated_workers_includes_every_entity():
     }
 
 
+async def test_get_updated_workers_skips_platform_agents():
+    day = date(2026, 10, 18)
+    changed = datetime(2026, 10, 18, 12, 0)
+    mongo = _fake_mongo(
+        worker=[
+            _version("WM-es", 1, "DEPLOYED", changed),
+            _version("WM-platform", 1, "DEPLOYED", changed, entity="Platform"),
+        ],
+        worker_manager=[_manager("WM-es"), _manager("WM-platform", entity="Platform")],
+        label=[],
+        user=[],
+    )
+
+    workers = await MaisaClient(mongo_client=mongo).get_updated_workers(day)
+
+    assert [w.worker_id for w in workers] == ["WM-es"]
+
+
 async def test_get_updated_workers_filters_out_non_matching_agents():
     day = date(2026, 10, 18)
     changed = datetime(2026, 10, 18, 12, 0)

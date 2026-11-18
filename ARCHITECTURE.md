@@ -316,7 +316,8 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      - Solo agentes con una versión `DEPLOYED` (la más alta va como
        `provider_version_id`), `is_deleted=false`, sin
        `is_user_excluded`, de `settings.maisa_workers_environment` (la
-       BBDD mezcla entornos; default `PRE`) y de todas las entidades.
+       BBDD mezcla entornos; default `PRE`) y de todas las entidades salvo
+       `Platform`, que no se sincroniza (`business_entity.SKIPPED_ENTITIES`).
      - **Caso de uso:** `worker_manager.label_ids` → `label.name`, con
        formato acordado `<ResourceID>_<nombre>`; el prefijo numérico es el
        Resource ID del caso de uso. **Si no hay label con ese formato o el
@@ -325,7 +326,8 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
        (`WorkerSyncService._resolve_use_case`):
        `worker_manager.entity` → BE con la tabla de equivalencias de Auron
        (`core/business_entity.py`; p.ej. `Spain` → `Santander ES`,
-       `Consumer`/`Germany` → `Consumer`, `HQ`/`HQNEW` → `HQ - Others`) →
+       `Consumer`/`Germany`/`SCF_Global` → `Consumer`, `HQ`/`HQNEW` →
+       `HQ - Others`, `SDS` → `Other`) →
        caso de uso llamado `settings.auron_maisa_generic_use_case_name`
        (`To be regularized - Maisa - {business_entity}`), creado a mano por
        Auron uno por BE y buscado por nombre dentro del Engagement del
