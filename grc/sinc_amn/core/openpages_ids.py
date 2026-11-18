@@ -28,13 +28,13 @@ OPENPAGES_IDS: dict[str, dict[str, str | None]] = {
         # Caso de uso
         "initiative": "3601",
         "api_id": "3408",
-        "cloud_account": "3405",
+        "cloud_account": "3405",  # Santander Fields:Account ID DEV
         # Asociacion Agent -> caso de uso (PARENT)
         "agent_use_case_association": "966",
     },
     "PRO": {
         "platform_agent_id": "3524",
-        "use_case_owner": None,
+        "use_case_owner": "3256",
         "agent_creator": "3285",
         "provider_version_id": "3281",
         "technical_owner": None,
@@ -44,9 +44,9 @@ OPENPAGES_IDS: dict[str, dict[str, str | None]] = {
         "agent_platform": "3186",
         "build_origin": "3188",
         "technical_status": "3287",
-        "initiative": None,
-        "api_id": None,
-        "cloud_account": None,
+        "initiative": "3501",
+        "api_id": "3230",
+        "cloud_account": "3343",
         "agent_use_case_association": None,
     },
 }
