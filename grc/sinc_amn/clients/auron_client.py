@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from collections import deque
 from datetime import date, datetime, timedelta
 
 import httpx
@@ -215,6 +216,33 @@ _UNAUTHORIZED_RETRY_DELAY_SECONDS = 2.0
 # ritmo de peticiones con 429. Se espera y se reintenta con estas pausas (o
 # la que pida `Retry-After`, si es mayor) antes de dar el error por bueno.
 _TOO_MANY_REQUESTS_DELAYS_SECONDS = (2.0, 5.0, 10.0, 20.0, 40.0)
+# Limite de OpenPages PRE segun Auron: 180 puntos por usuario en ventanas de
+# 60s; un GET cuesta 1 punto y un PUT/POST/DELETE 5 (la Query API es POST).
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_RATE_LIMIT_READ_POINTS = 1
+_RATE_LIMIT_WRITE_POINTS = 5
+
+
+class _PointsLimiter:
+    """No deja gastar mas de `budget` puntos en ningun tramo de
+    `_RATE_LIMIT_WINDOW_SECONDS`: si la peticion no cabe, espera a que caduquen
+    las mas antiguas."""
+
+    def __init__(self, budget: int) -> None:
+        self._budget = budget
+        self._spent: deque[tuple[float, int]] = deque()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self, points: int) -> None:
+        async with self._lock:
+            while True:
+                now = time.monotonic()
+                while self._spent and now - self._spent[0][0] >= _RATE_LIMIT_WINDOW_SECONDS:
+                    self._spent.popleft()
+                if sum(p for _, p in self._spent) + points <= self._budget or not self._spent:
+                    self._spent.append((now, points))
+                    return
+                await asyncio.sleep(self._spent[0][0] + _RATE_LIMIT_WINDOW_SECONDS - now)
 
 
 class AuronClient:
@@ -240,6 +268,7 @@ class AuronClient:
         self._token: str | None = None
         self._token_expires_at: float = 0.0
         self._token_lock = asyncio.Lock()
+        self._limiter = _PointsLimiter(settings.auron_rate_limit_points_per_minute)
 
     async def _get_access_token(self) -> str:
         async with self._token_lock:
@@ -280,7 +309,7 @@ class AuronClient:
         llamada a OpenPages (Query API o /grc/api/contents) puede dar 401 con
         ese mismo token, y a los pocos segundos lo acepta.
         """
-        response = await self._client.request(method, url, **kwargs)
+        response = await self._send(method, url, **kwargs)
         if response.status_code == httpx.codes.UNAUTHORIZED:
             logger.warning(
                 "auron: 401 en %s %s, se reintenta en %ss",
@@ -289,15 +318,22 @@ class AuronClient:
                 _UNAUTHORIZED_RETRY_DELAY_SECONDS,
             )
             await asyncio.sleep(_UNAUTHORIZED_RETRY_DELAY_SECONDS)
-            response = await self._client.request(method, url, **kwargs)
+            response = await self._send(method, url, **kwargs)
         for delay in _TOO_MANY_REQUESTS_DELAYS_SECONDS:
             if response.status_code != httpx.codes.TOO_MANY_REQUESTS:
                 break
             delay = max(delay, _retry_after_seconds(response))
             logger.warning("auron: 429 en %s %s, se reintenta en %ss", method, url, delay)
             await asyncio.sleep(delay)
-            response = await self._client.request(method, url, **kwargs)
+            response = await self._send(method, url, **kwargs)
         return response
+
+    async def _send(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """Una peticion a OpenPages, esperando antes si agotaria el limite de
+        puntos por minuto."""
+        read = method.upper() == "GET"
+        await self._limiter.acquire(_RATE_LIMIT_READ_POINTS if read else _RATE_LIMIT_WRITE_POINTS)
+        return await self._client.request(method, url, **kwargs)
 
     async def get_use_cases(self, tenants: list[str]) -> list[UseCase]:
         """Casos de uso de los tenants dados, filtrados por fecha en el propio

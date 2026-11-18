@@ -70,6 +70,10 @@ fijarla a mano si el host real no sigue ese patrón.
 por nombre, del enum obligatorio `"172"` ("Autonomy Level") del Agent: se pone
 en el alta y en los Agents que aún no lo tienen. `AURON_AGENT_ROLE` (por
 defecto `Worker`) hace lo mismo con el enum `"3333"` ("Agent Role").
+`AURON_RATE_LIMIT_POINTS_PER_MINUTE` (por defecto `180`) es el límite de
+OpenPages por usuario que el cliente respeta antes de llamar: un GET cuesta 1
+punto y un PUT/POST/DELETE (incluida la Query API) 5, en ventanas de 60s. Si
+aun así llega un 429, se reintenta con pausas crecientes.
 
 Las migraciones de la tabla intermedia están en `db/migrations/` (aplicarlas
 en orden: `0001_create_maisa_use_case_labels.sql`,

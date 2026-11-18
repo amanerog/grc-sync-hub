@@ -1152,3 +1152,47 @@ async def test_request_gives_up_after_429_retries(monkeypatch):
 
     await http_client.aclose()
 
+
+
+async def test_points_limiter_waits_when_budget_is_spent(monkeypatch):
+    now = [100.0]
+    delays: list[float] = []
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(auron_client.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(auron_client.asyncio, "sleep", fake_sleep)
+    limiter = auron_client._PointsLimiter(budget=10)
+
+    await limiter.acquire(5)
+    now[0] += 10
+    await limiter.acquire(5)
+    assert delays == []
+
+    # El presupuesto esta gastado: espera a que caduque la primera (t=100).
+    await limiter.acquire(1)
+    assert delays == [50.0]
+
+
+async def test_request_charges_writes_more_than_reads(monkeypatch):
+    charged: list[int] = []
+
+    async def fake_acquire(points):
+        charged.append(points)
+
+    http_client = httpx.AsyncClient(
+        base_url=settings.auron_base_url,
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})),
+    )
+    auron = AuronClient(client=http_client)
+    monkeypatch.setattr(auron._limiter, "acquire", fake_acquire)
+
+    await auron._request("GET", "/grc/api/contents/1")
+    await auron._request("POST", "/opgrc/api/v2/query", json={})
+    await auron._request("PUT", "/grc/api/contents/1", json={})
+
+    assert charged == [1, 5, 5]
+
+    await http_client.aclose()

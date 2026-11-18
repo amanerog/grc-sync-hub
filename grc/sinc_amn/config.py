@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # puede tardar mas en consultas grandes. Aplica a todas las llamadas de
     # AuronClient.
     auron_http_timeout_seconds: float = 30.0
+    # Puntos por minuto que se permite gastar contra OpenPages (GET = 1,
+    # PUT/POST/DELETE = 5). 180 es el limite por usuario de OpenPages PRE
+    # segun Auron; si lo suben, se sube aqui.
+    auron_rate_limit_points_per_minute: int = 180
 
     # Maisa - confirmado explicitamente que el envio de labels hacia Maisa
     # ("Funcionalidad *") no lo hace este microservicio, lo regulariza a
