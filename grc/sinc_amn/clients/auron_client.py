@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 import httpx
 
 from sinc_amn.config import settings
+from sinc_amn.core.openpages_ids import openpages_id
 from sinc_amn.models.use_case import UseCase
 
 logger = logging.getLogger(__name__)
@@ -156,7 +157,8 @@ def _retry_after_seconds(response: httpx.Response) -> float:
 
 
 # Enums del Agent con valor por defecto, por nombre (portable entre
-# entornos: los ids de los valores cambian de PRE a PRO):
+# entornos: los ids de los valores cambian de PRE a PRO). Ids de PRE (ver
+# core/openpages_ids.py):
 # - "172" ("MRG-AIFacts-AIComponent:AI Component Level", "Autonomy Level") y
 #   "3333" ("watsonx-AIComponent:Agent Role"): configurables. Sin la 172,
 #   OpenPages rechaza cualquier PUT/POST del Agent (OP-03374 "Property 172
@@ -168,11 +170,11 @@ def _default_enum_fields() -> dict[str, dict]:
     return {
         field_id: _enum_field(field_id, value)
         for field_id, value in (
-            ("172", settings.auron_agent_autonomy_level),
-            ("3333", settings.auron_agent_role),
-            ("3966", "GAIP Solution"),
-            ("3332", "Other"),
-            ("3334", "Third party"),
+            (openpages_id("autonomy_level"), settings.auron_agent_autonomy_level),
+            (openpages_id("agent_role"), settings.auron_agent_role),
+            (openpages_id("solution_origin"), "GAIP Solution"),
+            (openpages_id("agent_platform"), "Other"),
+            (openpages_id("build_origin"), "Third party"),
         )
     }
 
@@ -204,7 +206,7 @@ def _technical_status_fields(environment: str | None) -> list[dict]:
             "auron: entorno %r sin Technical Status (3288), no se envia", environment
         )
         return []
-    return [_enum_field("3288", status)]
+    return [_enum_field(openpages_id("technical_status"), status)]
 
 
 _TOKEN_EXPIRY_BUFFER_SECONDS = 60
@@ -802,31 +804,31 @@ class AuronClient:
             "fields": {
                 "field": [
                     {
-                        "id": "3658",
+                        "id": openpages_id("platform_agent_id"),
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": worker_id,
                     },
                     {
-                        "id": "3261",
+                        "id": openpages_id("use_case_owner"),
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": use_case_owner,
                     },
                     {
-                        "id": "3293",
+                        "id": openpages_id("agent_creator"),
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": agent_owner,
                     },
                     {
-                        "id": "3290",
+                        "id": openpages_id("provider_version_id"),
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": provider_version_id,
                     },
                     {
-                        "id": "179",
+                        "id": openpages_id("technical_owner"),
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": agent_owner,
@@ -896,25 +898,25 @@ class AuronClient:
             "fields": {
                 "field": [
                     {
-                        "id": "3261",
+                        "id": openpages_id("use_case_owner"),
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": use_case_owner,
                     },
                     {
-                        "id": "3293",
+                        "id": openpages_id("agent_creator"),
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": agent_owner,
                     },
                     {
-                        "id": "3290",
+                        "id": openpages_id("provider_version_id"),
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": provider_version_id,
                     },
                     {
-                        "id": "179",
+                        "id": openpages_id("technical_owner"),
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": agent_owner,

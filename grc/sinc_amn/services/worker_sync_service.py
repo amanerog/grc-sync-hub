@@ -8,6 +8,7 @@ from sinc_amn.config import settings
 from sinc_amn.core.business_entity import business_entity_for
 from sinc_amn.core.monitoring import MonitoringStore
 from sinc_amn.core.notifications import AdminNotifier
+from sinc_amn.core.openpages_ids import openpages_id
 from sinc_amn.models.worker import Worker
 from sinc_amn.repositories.noxus_use_case_label_repository import (
     NoxusUseCaseLabelRepository,
@@ -243,7 +244,7 @@ class WorkerSyncService:
             await self._auron.associate(
                 agent["id"],
                 use_case_id,
-                association_definition_id="966",
+                association_definition_id=openpages_id("agent_use_case_association"),
                 association_type="PARENT",
             )
         return await self._auron.update_agent(
@@ -269,9 +270,9 @@ class WorkerSyncService:
         await self._auron.update_use_case_fields(
             use_case_id,
             {
-                "3601": worker.workspace_id,
-                "3408": worker.model_id,
-                "3405": settings.aws_account_id,
+                openpages_id("initiative"): worker.workspace_id,
+                openpages_id("api_id"): worker.model_id,
+                openpages_id("cloud_account"): settings.aws_account_id,
             },
         )
 

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
@@ -34,6 +36,9 @@ class Settings(BaseSettings):
     # puede tardar mas en consultas grandes. Aplica a todas las llamadas de
     # AuronClient.
     auron_http_timeout_seconds: float = 30.0
+    # Instancia de OpenPages (PRE o PRO): elige los ids de fields y
+    # asociaciones de core/openpages_ids.py, que cambian entre instancias.
+    auron_openpages_environment: Literal["PRE", "PRO"] = "PRE"
     # Puntos por minuto que se permite gastar contra OpenPages (GET = 1,
     # PUT/POST/DELETE = 5). 180 es el limite por usuario de OpenPages PRE
     # segun Auron; si lo suben, se sube aqui.

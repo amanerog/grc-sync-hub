@@ -74,6 +74,12 @@ defecto `Worker`) hace lo mismo con el enum `"3333"` ("Agent Role").
 OpenPages por usuario que el cliente respeta antes de llamar: un GET cuesta 1
 punto y un PUT/POST/DELETE (incluida la Query API) 5, en ventanas de 60s. Si
 aun así llega un 429, se reintenta con pausas crecientes.
+`AURON_OPENPAGES_ENVIRONMENT` (`PRE` por defecto, o `PRO`) elige la tabla de
+ids de fields y asociaciones de `core/openpages_ids.py`, que cambian entre
+instancias de OpenPages. Los ids de PRO que aún faltan se sacan con
+`scripts/map_openpages_ids.py`. Para PRO hay que fijar también
+`AURON_ZEN_INSTANCE_ID`, `AURON_API_KEY`, `AURON_MAISA_AI_SOLUTION_ID` (`4077`),
+`AURON_NOXUS_AI_SOLUTION_ID` (`5046`) y `AURON_GENERIC_USE_CASE_PARENT_ID`.
 
 Las migraciones de la tabla intermedia están en `db/migrations/` (aplicarlas
 en orden: `0001_create_maisa_use_case_labels.sql`,
