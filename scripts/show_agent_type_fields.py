@@ -20,7 +20,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "grc"))
 from sinc_amn.clients.auron_client import AuronClient  # noqa: E402
 from sinc_amn.config import settings  # noqa: E402
 
-_WORKFLOW_FIELDS = ("Agent Role", "Agent Task", "Output type", "Interaction type", "Execution flow")
+# Los que el workflow exige y Flujo 2 aun no envia.
+_WORKFLOW_FIELDS = (
+    "PRO Roll-out Date",
+    "Agent Version",
+    "Version id",
+    "Data Category",
+    "Data Security",
+    "Agent Task",
+    "Output type",
+    "Interaction type",
+    "Execution flow",
+)
 
 
 def _field_definitions(node):
