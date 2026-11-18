@@ -7,17 +7,19 @@ Del Excel solo se guardan dos columnas: el id del agente en Maisa
 version del agente: si dos versiones apuntan a casos de uso distintos, gana la
 de version mas alta y se avisa.
 
-Se ejecuta en local (necesita openpyxl, no va en la imagen):
+Se ejecuta en local. Acepta el Excel (.xlsx, necesita openpyxl) o el mismo
+Excel guardado desde Excel como "CSV UTF-8" (.csv, sin dependencias; vale
+con `,` o `;` como separador):
 
-    python scripts/build_worker_use_cases_csv.py mapeos.xlsx --instance pro
+    python scripts/build_worker_use_cases_csv.py mapeos.csv --instance pro
 """
+
+from __future__ import annotations
 
 import argparse
 import csv
 import sys
 from pathlib import Path
-
-from openpyxl import load_workbook
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "grc" / "sinc_amn" / "data"
 _WORKER = "Column1.wmid"
@@ -27,16 +29,28 @@ _VERSION = "Column1.version"
 _EXISTS = "Auron Case exists"
 
 
-def _rows(path: Path, sheet: str | None):
+def _raw_rows(path: Path, sheet: str | None):
+    if path.suffix.lower() == ".csv":
+        with path.open(newline="", encoding="utf-8-sig") as f:
+            text = f.read()
+        dialect = csv.Sniffer().sniff(text.splitlines()[0], delimiters=",;")
+        yield from csv.reader(text.splitlines(), dialect)
+        return
+    from openpyxl import load_workbook
+
     workbook = load_workbook(path, read_only=True, data_only=True)
     ws = workbook[sheet] if sheet else workbook.active
-    rows = ws.iter_rows(values_only=True)
+    yield from ws.iter_rows(values_only=True)
+
+
+def _rows(path: Path, sheet: str | None):
+    rows = _raw_rows(path, sheet)
     header = [str(h).strip() if h is not None else "" for h in next(rows)]
     missing = {_WORKER, _USE_CASE, _RESULT, _VERSION} - set(header)
     if missing:
         sys.exit(f"Faltan columnas en el Excel: {sorted(missing)} (hay: {header})")
     for row in rows:
-        yield dict(zip(header, row, strict=False))
+        yield dict(zip(header, row))
 
 
 def _as_id(value) -> str:
@@ -49,7 +63,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("excel", type=Path)
     parser.add_argument("--instance", required=True, choices=["pre", "pro"])
-    parser.add_argument("--sheet", help="hoja (por defecto, la activa)")
+    parser.add_argument("--sheet", help="hoja del .xlsx (por defecto, la activa)")
     args = parser.parse_args()
 
     best: dict[str, tuple[int, str]] = {}
@@ -58,10 +72,14 @@ def main() -> None:
     for row in _rows(args.excel, args.sheet):
         read += 1
         worker_id, use_case_id = _as_id(row[_WORKER]), _as_id(row[_USE_CASE])
-        if row[_RESULT] != _EXISTS or not worker_id or not use_case_id:
+        if (
+            str(row[_RESULT] or "").strip() != _EXISTS
+            or not worker_id
+            or not use_case_id
+        ):
             continue
         kept += 1
-        version = int(row[_VERSION] or 0)
+        version = int(float(row[_VERSION] or 0))
         current = best.get(worker_id)
         if current is not None and current[1] != use_case_id:
             conflicts.add(worker_id)
@@ -78,8 +96,10 @@ def main() -> None:
 
     print(f"{read} filas leidas, {kept} con caso de uso, {len(best)} agentes -> {out}")
     for worker_id in sorted(conflicts):
-        print(f"  aviso: {worker_id} tiene versiones en casos de uso distintos, "
-              f"se usa {best[worker_id][1]}")
+        print(
+            f"  aviso: {worker_id} tiene versiones en casos de uso distintos, "
+            f"se usa {best[worker_id][1]}"
+        )
 
 
 if __name__ == "__main__":
