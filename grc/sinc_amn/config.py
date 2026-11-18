@@ -126,9 +126,6 @@ class Settings(BaseSettings):
     # si es la cuenta del microservicio o la del proveedor (Maisa/Noxus).
     aws_account_id: str | None = None
 
-    # Flujo 1: backend de checkpoint (pendiente de decidir: dynamodb/rds/configmap)
-    checkpoint_backend: str = "configmap"
-
     # Flujo 1 - Funcionalidad 1: tabla intermedia OpenPages<->Maisa (RDS Postgres)
     intermediate_db_dsn: str
     # organizationId con el que Maisa identifica a esta entidad/entorno
