@@ -16,7 +16,7 @@ OPENPAGES_IDS: dict[str, dict[str, str | None]] = {
         # Agent
         "platform_agent_id": "3658",  # Santander-Fields-Agent:PlatformAgentID
         "use_case_owner": "3261",  # Santander Fields:Owner
-        "agent_creator": "3293",  # Creator of the AI Agent
+        "agent_creator": "3954",  # Santander-Fields-Agent:Technical Owner (antes 3293)
         "provider_version_id": "3290",  # Version id of the provider
         "technical_owner": "179",  # MRG-AIFacts-AIComponent:Technical Owner
         "autonomy_level": "172",  # MRG-AIFacts-AIComponent:AI Component Level

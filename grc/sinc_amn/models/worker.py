@@ -19,7 +19,7 @@ class Worker(BaseModel):
     # sin implementar - no confirmado si el proveedor los da siempre rellenos.
     agent_name: str | None = None
     agent_description: str | None = None
-    # "Creator of the AI Agent" (field "3293") - confirmado que es el owner
+    # "Technical Owner" del Agent (field "3954", antes "3293") - confirmado que es el owner
     # del propio Agent (distinto del owner del Use Case, que vive en la
     # tabla intermedia via UseCaseLabel.owner, no aqui), tambien recuperado
     # de Maisa/Noxus al sincronizar.

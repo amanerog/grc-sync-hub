@@ -758,7 +758,8 @@ class AuronClient:
           `NoxusUseCaseLabel.owner`), y el caller (`WorkerSyncService`) lo
           lee de ahi via `get_by_resource_id` - sin GET adicional a
           OpenPages, para Maisa y Noxus por igual.
-        - `"3293"` ("Creator of the AI Agent") = `agent_owner` - confirmado
+        - `"3954"` ("Santander-Fields-Agent:Technical Owner"; hasta nov-2026
+          era `"3293"` "Creator of the AI Agent") = `agent_owner` - confirmado
           que es el owner del propio Agent (distinto del anterior),
           recuperado de Maisa/Noxus al sincronizar (`worker.agent_owner`).
         - `"3290"` ("Version id of the provider") = `provider_version_id` -
@@ -766,7 +767,7 @@ class AuronClient:
           (`worker.provider_version_id`, ver `models/worker.py`), igual que
           `agent_name`/`agent_description`.
         - `"179"` ("MRG-AIFacts-AIComponent:Technical Owner") = `agent_owner`,
-          igual que `"3293"` (confirmado). Obligatorio para OpenPages.
+          igual que `"3954"` (confirmado). Obligatorio para OpenPages.
         - `"172"` (enum "Autonomy Level") = `settings.auron_agent_autonomy_level`
           (obligatorio para OpenPages) y `"3333"` (enum "Agent Role") =
           `settings.auron_agent_role`, y los fijos `"3966"` (GAIP Solution),

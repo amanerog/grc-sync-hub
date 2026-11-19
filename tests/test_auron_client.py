@@ -555,7 +555,7 @@ async def test_create_agent_posts_expected_payload():
                         "value": "owner@example.com",
                     },
                     {
-                        "id": "3293",
+                        "id": "3954",
                         "dataType": "STRING_TYPE",
                         "hasChanged": True,
                         "value": "agent-owner@example.com",
@@ -752,7 +752,7 @@ async def test_update_agent_puts_expected_payload_without_primary_parent_id():
                     "value": "owner@example.com",
                 },
                 {
-                    "id": "3293",
+                    "id": "3954",
                     "dataType": "STRING_TYPE",
                     "hasChanged": True,
                     "value": "agent-owner@example.com",
@@ -815,7 +815,7 @@ async def test_update_agent_keeps_existing_enum_values():
 
     _, payload = captured[0]
     assert [field["id"] for field in payload["fields"]["field"]] == [
-        "3261", "3293", "3290", "179", "3333", "3966", "3332", "3334"
+        "3261", "3954", "3290", "179", "3333", "3966", "3332", "3334"
     ]
 
     await http_client.aclose()

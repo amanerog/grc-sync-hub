@@ -456,7 +456,8 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      owner del **Use Case**, no del Agent — **ya resuelto**: se persiste en
      la tabla intermedia de cada tenant durante Flujo 1, `WorkerSyncService`
      lo lee de ahí sin GET adicional, para Maisa y Noxus por igual),
-     `"3293"` ("Creator of the AI Agent" = `agent_owner`, **ya resuelto**:
+     `"3954"` ("Santander-Fields-Agent:Technical Owner", antes `"3293"`
+     "Creator of the AI Agent" = `agent_owner`, **ya resuelto**:
      owner del propio Agent, recuperado de Maisa/Noxus, distinto del owner
      del Use Case), `"3290"` ("Version id of the provider" =
      `worker.provider_version_id`, **ya resuelto**: dato de Maisa/Noxus,

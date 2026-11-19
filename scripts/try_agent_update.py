@@ -1,5 +1,5 @@
 """Prueba por partes el PUT de update_agent contra un Agent de OpenPages
-para ver que parte rechaza: solo `name`, y cada field ("3261", "3293",
+para ver que parte rechaza: solo `name`, y cada field ("3261", "3954",
 "3290") por separado, sin y con su `name`.
 
 Cada PUT reescribe el valor que el Agent YA tiene (leido con un GET justo
@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "grc"))
 
 from sinc_amn.clients.auron_client import AuronClient  # noqa: E402
 
-_FIELD_IDS = ("3261", "3293", "3290")
+_FIELD_IDS = ("3261", "3954", "3290")
 
 
 async def _put(auron: AuronClient, agent_id: str, label: str, payload: dict) -> None:
