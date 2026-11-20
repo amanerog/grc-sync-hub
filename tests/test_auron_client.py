@@ -664,6 +664,27 @@ async def test_create_agent_omits_description_when_missing():
     await http_client.aclose()
 
 
+async def test_create_agent_replaces_path_separators_in_name():
+    captured: list[dict] = []
+    http_client = _make_create_content_client(captured)
+    auron = AuronClient(client=http_client)
+
+    await auron.create_agent(
+        worker_id="W-1",
+        use_case_id="UC-1",
+        tenant="maisa",
+        name="Nil Pay / Half Pay PJ\\PF",
+        description=None,
+        use_case_owner=None,
+        agent_owner="agent-owner@example.com",
+        provider_version_id="v1.0",
+    )
+
+    assert captured[0]["name"] == "[Agent Maisa] Nil Pay - Half Pay PJ-PF"
+
+    await http_client.aclose()
+
+
 async def test_create_agent_raises_when_name_missing():
     http_client = httpx.AsyncClient(base_url=settings.auron_base_url)
     auron = AuronClient(client=http_client)

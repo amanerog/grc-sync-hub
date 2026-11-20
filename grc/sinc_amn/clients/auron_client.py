@@ -28,6 +28,18 @@ logger = logging.getLogger(__name__)
 # ("[Agent Maisa] ...", ver create_agent/update_agent).
 _TENANT_DISPLAY_NAME = {"maisa": "Maisa", "noxus": "Noxus"}
 
+# OpenPages usa el nombre como ruta (modelo de carpetas): con "/" o "\" el
+# POST/PUT falla con OP-03380 ("57" = field Name). No hay forma de escaparlos,
+# se cambian por "-" (probado: crea el Agent sin problema).
+_NAME_PATH_SEPARATORS = str.maketrans({"/": "-", "\\": "-"})
+
+
+def _agent_name(tenant: str, name: str) -> str:
+    """Nombre del Agent en OpenPages: prefijo del tenant y sin separadores
+    de ruta."""
+    prefix = _TENANT_DISPLAY_NAME[tenant]
+    return f"[Agent {prefix}] {name.translate(_NAME_PATH_SEPARATORS)}"
+
 
 def _ai_solution_id(tenant: str) -> str:
     return {
@@ -812,9 +824,8 @@ class AuronClient:
                 f"provider_version_id={provider_version_id!r})"
             )
 
-        prefix = _TENANT_DISPLAY_NAME[tenant]
         payload = {
-            "name": f"[Agent {prefix}] {name}",
+            "name": _agent_name(tenant, name),
             "typeDefinitionId": settings.auron_agent_type_definition_id,
             "primaryParentId": use_case_id,
             "fields": {
@@ -908,9 +919,8 @@ class AuronClient:
                 f"provider_version_id={provider_version_id!r})"
             )
 
-        prefix = _TENANT_DISPLAY_NAME[tenant]
         payload = {
-            "name": f"[Agent {prefix}] {name}",
+            "name": _agent_name(tenant, name),
             "fields": {
                 "field": [
                     {
