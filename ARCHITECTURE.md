@@ -465,7 +465,9 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      (`settings.aws_account_id`) NO va en el Agent** (confirmado por
      Auron): va en el Account ID del entorno del worker (`"3405"` DEV,
      `"3406"` PRE o `"3407"` PRO; `_account_id_field`), en un PUT al caso
-     de uso junto con `"3601"` (Initiative = workspace de Maisa/Noxus).
+     de uso junto con `"3601"` (Initiative = workspace de Maisa/Noxus) y
+     `"3385"` (enum "Santander Fields:Use Case Type" = "Maisa Worker", solo
+     para Maisa; Noxus aún sin valor).
      El `"3408"` ("Santander Fields:API ID" = modelo LLM) ya no se escribe:
      no tenemos permisos sobre ese campo. `WorkerSyncService._update_use_case` →
      `AuronClient.update_use_case_fields`, que lee el caso de uso, reenvía

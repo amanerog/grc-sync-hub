@@ -574,7 +574,9 @@ async def test_ingest_worker_updates_real_use_case_fields(
 
     assert ok is True
     auron.update_use_case_fields.assert_awaited_once_with(
-        "UC-1", {"3601": "WS-1", account_field: "123456789012"}
+        "UC-1",
+        {"3601": "WS-1", account_field: "123456789012"},
+        {"3385": "Maisa Worker"},
     )
 
 
@@ -587,7 +589,9 @@ async def test_ingest_worker_skips_account_for_unknown_environment(monkeypatch):
 
     await _service(auron=auron)._ingest_worker(_worker())
 
-    auron.update_use_case_fields.assert_awaited_once_with("UC-1", {"3601": "WS-1"})
+    auron.update_use_case_fields.assert_awaited_once_with(
+        "UC-1", {"3601": "WS-1"}, {"3385": "Maisa Worker"}
+    )
 
 
 async def test_ingest_worker_does_not_update_generic_use_case():

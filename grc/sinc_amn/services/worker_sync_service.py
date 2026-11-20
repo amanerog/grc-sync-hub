@@ -274,9 +274,11 @@ class WorkerSyncService:
 
     async def _update_use_case(self, worker: Worker, use_case_id: str) -> None:
         """Datos del worker que van en el caso de uso y no en el Agent
-        (confirmado por Auron): "3601" Initiative = id del workspace y la
-        cuenta cloud en el Account ID del entorno del worker (DEV/PRE/PRO,
-        `_account_id_field`). El "3408" API ID no se escribe: no hay permisos.
+        (confirmado por Auron): "3601" Initiative = id del workspace, "3385"
+        Use Case Type = "Maisa Worker" (solo Maisa, `_USE_CASE_TYPE_BY_TENANT`)
+        y la cuenta cloud en el Account ID del entorno del worker
+        (DEV/PRE/PRO, `_account_id_field`). El "3408" API ID no se escribe:
+        no hay permisos.
 
         Solo para casos de uso reales: los genericos los comparten agentes
         de workspaces y modelos distintos. Si varios agentes cuelgan del
@@ -286,7 +288,11 @@ class WorkerSyncService:
         account_field = _account_id_field(worker)
         if account_field:
             values[account_field] = settings.aws_account_id
-        await self._auron.update_use_case_fields(use_case_id, values)
+        enums = {}
+        use_case_type = _USE_CASE_TYPE_BY_TENANT.get(worker.tenant)
+        if use_case_type:
+            enums[openpages_id("use_case_type")] = use_case_type
+        await self._auron.update_use_case_fields(use_case_id, values, enums)
 
     async def _ingest_worker(self, worker: Worker) -> bool:
         """Ingesta un worker de forma aislada: nunca propaga un fallo, lo
@@ -365,6 +371,11 @@ class WorkerSyncService:
             logger.exception(
                 "worker_sync: fallo actualizando tracking de %s", worker.worker_id
             )
+
+
+# "3385" Use Case Type del caso de uso, por nombre del valor del enum. Noxus:
+# aun sin valor confirmado, no se envia.
+_USE_CASE_TYPE_BY_TENANT = {"maisa": "Maisa Worker"}
 
 
 def _environment(worker: Worker) -> str | None:

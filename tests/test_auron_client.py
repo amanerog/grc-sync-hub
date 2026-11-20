@@ -419,6 +419,34 @@ async def test_update_use_case_fields_skips_put_when_nothing_changed():
     await http_client.aclose()
 
 
+async def test_update_use_case_fields_sends_changed_enums_by_name():
+    content = {
+        "name": "Caso original",
+        "fields": {
+            "field": [
+                {"id": "3385", "name": "Use Case Type", "dataType": "ENUM_TYPE",
+                 "enumValue": {"id": "1", "name": "Other"}},
+                {"id": "7777", "dataType": "ENUM_TYPE",
+                 "enumValue": {"id": "2", "name": "Igual"}},
+            ]
+        },
+    }
+    puts: list[dict] = []
+    http_client = _make_use_case_fields_client(content, puts)
+    auron = AuronClient(client=http_client)
+
+    await auron.update_use_case_fields(
+        "UC-1", {}, {"3385": "Maisa Worker", "7777": "Igual"}
+    )
+
+    assert puts[0]["fields"]["field"] == [
+        {"id": "3385", "dataType": "ENUM_TYPE", "hasChanged": True,
+         "enumValue": {"name": "Maisa Worker"}, "name": "Use Case Type"},
+    ]
+
+    await http_client.aclose()
+
+
 def _make_create_content_client(captured: list[dict]) -> httpx.AsyncClient:
     def handler(request: httpx.Request) -> httpx.Response:
         if str(request.url) == TOKEN_URL:

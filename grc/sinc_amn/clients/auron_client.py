@@ -449,10 +449,14 @@ class AuronClient:
         return response.json()
 
     async def update_use_case_fields(
-        self, resource_id: str, values: dict[str, str | None]
+        self,
+        resource_id: str,
+        values: dict[str, str | None],
+        enums: dict[str, str] | None = None,
     ) -> dict | None:
         """Actualiza campos personalizados de un caso de uso (`{field id:
-        valor}`), sin tocar el resto. None si no habia nada que cambiar.
+        valor}`, y los enum en `enums` como `{field id: nombre del valor}`),
+        sin tocar el resto. None si no habia nada que cambiar.
 
         Confirmado (equipo Auron/IBM): el PUT lleva `name` y `description`
         ademas de los fields, asi que se leen primero del propio caso de uso
@@ -477,6 +481,14 @@ class AuronClient:
                 "hasChanged": True,
                 "value": value,
             }
+            if existing.get("name"):
+                field["name"] = existing["name"]
+            changed.append(field)
+        for field_id, value in (enums or {}).items():
+            existing = current.get(field_id, {})
+            if (existing.get("enumValue") or {}).get("name") == value:
+                continue
+            field = _enum_field(field_id, value)
             if existing.get("name"):
                 field["name"] = existing["name"]
             changed.append(field)
