@@ -1,6 +1,7 @@
 from sinc_amn.clients.auron_client import AuronClient
 from sinc_amn.clients.maisa_client import MaisaClient
 from sinc_amn.config import settings
+from sinc_amn.core.openpages_ids import openpages_id
 
 
 def _is_generic_use_case(name: str | None) -> bool:
@@ -10,10 +11,14 @@ def _is_generic_use_case(name: str | None) -> bool:
     return bool(name) and name.startswith(prefix)
 
 
+class PromotionError(Exception):
+    """El agente no tiene un caso de uso real en el que apuntar el pase."""
+
+
 class CheckpointService:
-    """Consultas de solo lectura para los checkpoints del pipeline de CI/CD
-    de los agentes de Maisa (CP1: el Agent esta en OpenPages y cuelga de un
-    caso de uso; CP2/CP3: estado del caso de uso). Todo en vivo contra
+    """Checkpoints del pipeline de CI/CD de los agentes de Maisa (CP1: el
+    Agent esta en OpenPages y cuelga de un caso de uso; CP2/CP3: estado del
+    caso de uso) y pases de entorno (`promote`). Todo en vivo contra
     Maisa/OpenPages, sin pasar por la tabla intermedia.
     """
 
@@ -62,3 +67,32 @@ class CheckpointService:
     async def get_use_case(self, use_case_id: str) -> dict | None:
         """Nombre, Status y Owner de un caso de uso, o None si no existe."""
         return await self._auron.get_use_case_status(use_case_id)
+
+    async def promote(
+        self, version_id: str, environment: str, account_id: str
+    ) -> dict | None:
+        """Pase del agente de una version de Maisa a PRE o PRO: apunta la
+        cuenta del despliegue en el Account ID PRE/PRO de su caso de uso. None
+        si la version no existe en Maisa.
+
+        PromotionError si el Agent aun no esta en OpenPages, no cuelga de un
+        caso de uso o cuelga de un generico (lo comparten agentes distintos).
+        """
+        agent = await self.get_agent(version_id)
+        if agent is None:
+            return None
+        if agent["use_case_id"] is None:
+            raise PromotionError("el agente no cuelga de un caso de uso en OpenPages")
+        if agent["is_generic_use_case"]:
+            raise PromotionError("el agente cuelga de un caso de uso generico")
+
+        updated = await self._auron.update_use_case_fields(
+            agent["use_case_id"],
+            {openpages_id(f"account_id_{environment.lower()}"): account_id},
+        )
+        return {
+            "worker_id": version_id,
+            "use_case_id": agent["use_case_id"],
+            "environment": environment,
+            "updated": updated is not None,
+        }

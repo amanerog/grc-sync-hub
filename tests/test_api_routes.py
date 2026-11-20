@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from sinc_amn.api.routes import checkpoints, noxus_labels, use_cases, workers
 from sinc_amn.main import app
+from sinc_amn.services.checkpoint_service import PromotionError
 
 
 class _FakeService:
@@ -123,6 +124,7 @@ def test_sync_workers_endpoint_passes_day_query_param(monkeypatch):
 class _FakeCheckpointService:
     agent = None
     use_case = None
+    promotion = None
     error: Exception | None = None
 
     async def get_agent(self, worker_id):
@@ -134,6 +136,11 @@ class _FakeCheckpointService:
         if self.error:
             raise self.error
         return self.use_case
+
+    async def promote(self, worker_id, environment, account_id):
+        if self.error:
+            raise self.error
+        return self.promotion
 
 
 def _checkpoint_client(monkeypatch, **attrs):
@@ -183,6 +190,54 @@ def test_use_case_checkpoint_404_when_missing(monkeypatch):
     client = _checkpoint_client(monkeypatch)
 
     assert client.get("/checkpoints/use-cases/1").status_code == 404
+
+
+_PROMOTION = {"environment": "PRE", "account_id": "123456789012"}
+
+
+def test_promotion_returns_service_result(monkeypatch):
+    promotion = {
+        "worker_id": "v-1",
+        "use_case_id": "11281",
+        "environment": "PRE",
+        "updated": True,
+    }
+    client = _checkpoint_client(monkeypatch, promotion=promotion)
+
+    response = client.post("/checkpoints/agents/v-1/promotion", json=_PROMOTION)
+
+    assert response.status_code == 200
+    assert response.json() == promotion
+
+
+def test_promotion_404_for_unknown_version(monkeypatch):
+    client = _checkpoint_client(monkeypatch)
+
+    response = client.post("/checkpoints/agents/v-404/promotion", json=_PROMOTION)
+
+    assert response.status_code == 404
+
+
+def test_promotion_409_when_agent_has_no_real_use_case(monkeypatch):
+    client = _checkpoint_client(
+        monkeypatch, error=PromotionError("el agente cuelga de un caso de uso generico")
+    )
+
+    response = client.post("/checkpoints/agents/v-1/promotion", json=_PROMOTION)
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "el agente cuelga de un caso de uso generico"}
+
+
+def test_promotion_rejects_unknown_environment(monkeypatch):
+    client = _checkpoint_client(monkeypatch)
+
+    response = client.post(
+        "/checkpoints/agents/v-1/promotion",
+        json={"environment": "DEV", "account_id": "123456789012"},
+    )
+
+    assert response.status_code == 422
 
 
 def test_sync_workers_endpoint_passes_full_load_query_param(monkeypatch):

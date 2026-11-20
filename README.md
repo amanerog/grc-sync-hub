@@ -128,8 +128,9 @@ Un despliegue independiente por entidad necesita, como mínimo:
 
 ## Checkpoints del pipeline de CI/CD
 
-Endpoints de solo lectura para el pipeline de los agentes de Maisa. Van
-detrás del gateway; el micro no autentica. Consultan Maisa/OpenPages en vivo.
+Endpoints para el pipeline de los agentes de Maisa. Van detrás del gateway;
+el micro no autentica. Consultan Maisa/OpenPages en vivo. Todos son de solo
+lectura salvo el de pase de entorno, que escribe en OpenPages.
 
 - `GET /checkpoints/agents/{worker_id}` (CP1). `worker_id` es el id de la
   versión de Maisa (`lastVersionId`); se resuelve a su `worker_manager`, que
@@ -143,4 +144,13 @@ detrás del gateway; el micro no autentica. Consultan Maisa/OpenPages en vivo.
   `use_case_id`, `name`, `status` (`Santander Fields:Status`) y `owner`.
   404 si no existe.
 
-Los dos devuelven 502 si falla Maisa u OpenPages.
+- `POST /checkpoints/agents/{worker_id}/promotion` (pase de DEV a PRE o de
+  PRE a PRO). Body `{"environment": "PRE"|"PRO", "account_id": "..."}`:
+  escribe `account_id` en el campo Account ID PRE o Account ID PRO del caso
+  de uso del que cuelga el Agent (ids por instancia en
+  `core/openpages_ids.py`). Devuelve `worker_id`, `use_case_id`,
+  `environment` y `updated` (`false` = ya tenía ese valor). 404 si la versión
+  no existe en Maisa; 409 si el Agent no está en OpenPages, no cuelga de un
+  caso de uso o cuelga de un genérico; 422 si `environment` no es PRE ni PRO.
+
+Todos devuelven 502 si falla Maisa u OpenPages.

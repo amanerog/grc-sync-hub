@@ -1,12 +1,14 @@
 import logging
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 from pymongo.errors import PyMongoError
 
 from sinc_amn.clients.auron_client import AuronClient
 from sinc_amn.clients.maisa_client import MaisaClient
-from sinc_amn.services.checkpoint_service import CheckpointService
+from sinc_amn.services.checkpoint_service import CheckpointService, PromotionError
 
 logger = logging.getLogger(__name__)
 
@@ -47,4 +49,39 @@ async def get_use_case_checkpoint(use_case_id: str) -> dict:
         raise HTTPException(status_code=502, detail=type(exc).__name__) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="caso de uso no encontrado")
+    return result
+
+
+class Promotion(BaseModel):
+    environment: Literal["PRE", "PRO"]
+    account_id: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/agents/{worker_id}/promotion")
+async def promote_agent(worker_id: str, promotion: Promotion) -> dict:
+    """Pase del agente de una version de Maisa a PRE o PRO: escribe
+    `account_id` en el Account ID PRE/PRO de su caso de uso.
+
+    404 si la version no existe en Maisa; 409 si el agente no esta en un caso
+    de uso real (sin Agent, sin caso de uso o en un generico); 502 si falla
+    Maisa u OpenPages.
+    """
+    try:
+        result = await _service().promote(
+            worker_id, promotion.environment, promotion.account_id
+        )
+    except PromotionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (httpx.HTTPError, PyMongoError) as exc:
+        logger.exception("checkpoints: fallo en el pase del agente %s", worker_id)
+        raise HTTPException(status_code=502, detail=type(exc).__name__) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="version de Maisa no encontrada")
+    logger.info(
+        "checkpoints: pase a %s del agente %s (caso de uso %s, actualizado=%s)",
+        promotion.environment,
+        worker_id,
+        result["use_case_id"],
+        result["updated"],
+    )
     return result
