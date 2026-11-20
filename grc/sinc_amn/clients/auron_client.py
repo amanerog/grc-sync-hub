@@ -777,9 +777,9 @@ class AuronClient:
           (`_TECHNICAL_STATUS_BY_ENVIRONMENT`), en el alta y en cada update.
           Sin `environment` (Noxus) no se envia.
 
-        Confirmado (equipo Auron/IBM): `"3405"` (cuenta cloud) y `"3408"`
-        (API ID / modelo LLM) NO van en el Agent sino en el caso de uso -
-        ver `update_use_case_fields`.
+        Confirmado (equipo Auron/IBM): la cuenta cloud (Account ID
+        DEV/PRE/PRO) NO va en el Agent sino en el caso de uso - ver
+        `update_use_case_fields`.
 
         Confirmado (equipo Auron/IBM): el caso de uso vinculado
         (`primaryParentId`) NO se puede cambiar en un `update_agent` -

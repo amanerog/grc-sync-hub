@@ -1,5 +1,5 @@
 """Muestra como vienen en OpenPages los fields que Flujo 2 escribe en el
-caso de uso ("3601" Initiative, "3408" API ID, "3405" cuenta cloud): su
+caso de uso ("3601" Initiative y los Account ID DEV/PRE/PRO): su
 dataType y su valor actual. Sirve para comprobar el formato antes de
 escribirlos (WorkerSyncService._update_use_case).
 
@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "grc"))
 from sinc_amn.clients.auron_client import AuronClient  # noqa: E402
 from sinc_amn.config import settings  # noqa: E402
 
-_FIELD_IDS = ("3601", "3408", "3405")
+_FIELD_IDS = ("3601", "3405", "3406", "3407")
 
 
 async def _real_use_case_ids(limit: int) -> list[str]:

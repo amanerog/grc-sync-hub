@@ -274,21 +274,19 @@ class WorkerSyncService:
 
     async def _update_use_case(self, worker: Worker, use_case_id: str) -> None:
         """Datos del worker que van en el caso de uso y no en el Agent
-        (confirmado por Auron): "3601" Initiative = id del workspace, "3408" API ID
-        = modelo de la version desplegada, "3405" cuenta cloud.
+        (confirmado por Auron): "3601" Initiative = id del workspace y la
+        cuenta cloud en el Account ID del entorno del worker (DEV/PRE/PRO,
+        `_account_id_field`). El "3408" API ID no se escribe: no hay permisos.
 
         Solo para casos de uso reales: los genericos los comparten agentes
         de workspaces y modelos distintos. Si varios agentes cuelgan del
         mismo caso de uso, gana el ultimo procesado.
         """
-        await self._auron.update_use_case_fields(
-            use_case_id,
-            {
-                openpages_id("initiative"): worker.workspace_id,
-                openpages_id("api_id"): worker.model_id,
-                openpages_id("cloud_account"): settings.aws_account_id,
-            },
-        )
+        values = {openpages_id("initiative"): worker.workspace_id}
+        account_field = _account_id_field(worker)
+        if account_field:
+            values[account_field] = settings.aws_account_id
+        await self._auron.update_use_case_fields(use_case_id, values)
 
     async def _ingest_worker(self, worker: Worker) -> bool:
         """Ingesta un worker de forma aislada: nunca propaga un fallo, lo
@@ -374,3 +372,12 @@ def _environment(worker: Worker) -> str | None:
     `worker_manager.environment`, que es siempre el filtrado en Flujo 2
     (`settings.maisa_workers_environment`). Noxus: aun sin dato."""
     return settings.maisa_workers_environment if worker.tenant == "maisa" else None
+
+
+def _account_id_field(worker: Worker) -> str | None:
+    """Field Account ID (DEV, PRE o PRO) del caso de uso que corresponde al
+    entorno del worker; None si no tiene entorno o no es uno de esos."""
+    environment = (_environment(worker) or "").upper()
+    if environment not in ("DEV", "PRE", "PRO"):
+        return None
+    return openpages_id(f"account_id_{environment.lower()}")

@@ -30,14 +30,14 @@ class Worker(BaseModel):
     # confirmado si el proveedor lo da siempre relleno.
     provider_version_id: str | None = None
     # Id tecnico del modelo LLM de la version desplegada (Maisa:
-    # `worker.model.name`). Opcional: hay versiones sin modelo. Destino:
-    # field "3408" (Santander Fields:API ID) del caso de uso, no del Agent
-    # (WorkerSyncService._update_use_case).
+    # `worker.model.name`). Opcional: hay versiones sin modelo. Solo se
+    # guarda en worker_sync_failures: el field "3408" (Santander Fields:API
+    # ID) del caso de uso no se escribe, no hay permisos.
     model_id: str | None = None
     # Entidad del agente en el proveedor (Maisa: `worker_manager.entity`, p.ej.
     # "Spain"). Decide el caso de uso generico cuando no hay label valido
     # (core/business_entity.py).
     entity: str | None = None
     # TODO: completar con el resto de campos del contrato real de Maisa/Noxus,
-    # si aparecen mas al confirmarlo. El field "3405" (cuenta cloud, en el
-    # caso de uso) NO es un dato de Worker - settings.aws_account_id.
+    # si aparecen mas al confirmarlo. La cuenta cloud (Account ID
+    # DEV/PRE/PRO del caso de uso) NO es un dato de Worker - settings.aws_account_id.

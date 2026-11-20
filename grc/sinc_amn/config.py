@@ -120,10 +120,10 @@ class Settings(BaseSettings):
     # BE ("cajon de sastre") de los agentes cuya entity de Maisa no esta en
     # la tabla de equivalencias (core/business_entity.py) o viene vacia.
     auron_other_business_entity: str = "Other"
-    # Field "3405" ("Identifier of the cloud account... en Development").
-    # Confirmado que va en el caso de uso, no en el Agent
-    # (WorkerSyncService._update_use_case; sin valor no se envia). Pendiente de confirmar
-    # si es la cuenta del microservicio o la del proveedor (Maisa/Noxus).
+    # Cuenta cloud: va al Account ID DEV/PRE/PRO del caso de uso segun el
+    # entorno del worker (WorkerSyncService._update_use_case; sin valor no se
+    # envia). Pendiente de confirmar si es la cuenta del microservicio o la
+    # del proveedor (Maisa/Noxus).
     aws_account_id: str | None = None
 
     # Flujo 1 - Funcionalidad 1: tabla intermedia OpenPages<->Maisa (RDS Postgres)

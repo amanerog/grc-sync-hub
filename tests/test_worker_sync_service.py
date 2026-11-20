@@ -2,6 +2,8 @@ from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import pytest
+
 from sinc_amn.clients.auron_client import AuronClient
 from sinc_amn.clients.maisa_client import MaisaClient
 from sinc_amn.clients.noxus_client import NoxusClient
@@ -553,8 +555,15 @@ async def test_ingest_worker_uses_entity_generic_when_maisa_label_missing():
     )
 
 
-async def test_ingest_worker_updates_real_use_case_fields(monkeypatch):
+@pytest.mark.parametrize(
+    ("environment", "account_field"),
+    [("DEV", "3405"), ("PRE", "3406"), ("PRO", "3407")],
+)
+async def test_ingest_worker_updates_real_use_case_fields(
+    monkeypatch, environment, account_field
+):
     monkeypatch.setattr(settings, "aws_account_id", "123456789012")
+    monkeypatch.setattr(settings, "maisa_workers_environment", environment)
     worker = _worker(model_id="gpt-4o")
     auron = AsyncMock(spec=AuronClient)
     auron.get_use_cases_by_resource_ids.return_value = [object()]
@@ -565,8 +574,20 @@ async def test_ingest_worker_updates_real_use_case_fields(monkeypatch):
 
     assert ok is True
     auron.update_use_case_fields.assert_awaited_once_with(
-        "UC-1", {"3601": "WS-1", "3408": "gpt-4o", "3405": "123456789012"}
+        "UC-1", {"3601": "WS-1", account_field: "123456789012"}
     )
+
+
+async def test_ingest_worker_skips_account_for_unknown_environment(monkeypatch):
+    monkeypatch.setattr(settings, "maisa_workers_environment", "QA")
+    auron = AsyncMock(spec=AuronClient)
+    auron.get_use_cases_by_resource_ids.return_value = [object()]
+    auron.get_agent_by_worker_id.return_value = None
+    auron.create_agent.return_value = {"id": "new-agent"}
+
+    await _service(auron=auron)._ingest_worker(_worker())
+
+    auron.update_use_case_fields.assert_awaited_once_with("UC-1", {"3601": "WS-1"})
 
 
 async def test_ingest_worker_does_not_update_generic_use_case():

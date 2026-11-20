@@ -461,12 +461,13 @@ abajo) — `agent_owner` es el owner del **Agent**, distinto del owner del
      owner del propio Agent, recuperado de Maisa/Noxus, distinto del owner
      del Use Case), `"3290"` ("Version id of the provider" =
      `worker.provider_version_id`, **ya resuelto**: dato de Maisa/Noxus,
-     `Worker` ya lo trae). **`"3405"` (cuenta cloud,
-     `settings.aws_account_id`) y `"3408"` ("Santander Fields:API ID" =
-     `worker.model_id`, en Maisa `worker.model.name` de la versión
-     DEPLOYED) NO van en el Agent** (confirmado por Auron): van en un PUT
-     al caso de uso junto con `"3601"` (Initiative = workspace de
-     Maisa/Noxus): `WorkerSyncService._update_use_case` →
+     `Worker` ya lo trae). **La cuenta cloud
+     (`settings.aws_account_id`) NO va en el Agent** (confirmado por
+     Auron): va en el Account ID del entorno del worker (`"3405"` DEV,
+     `"3406"` PRE o `"3407"` PRO; `_account_id_field`), en un PUT al caso
+     de uso junto con `"3601"` (Initiative = workspace de Maisa/Noxus).
+     El `"3408"` ("Santander Fields:API ID" = modelo LLM) ya no se escribe:
+     no tenemos permisos sobre ese campo. `WorkerSyncService._update_use_case` →
      `AuronClient.update_use_case_fields`, que lee el caso de uso, reenvía
      su `name`/`description` y solo hace el PUT si algún valor cambia. No
      se hace en los casos de uso genéricos (los comparten agentes de
