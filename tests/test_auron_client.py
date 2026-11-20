@@ -419,6 +419,24 @@ async def test_update_use_case_fields_skips_put_when_nothing_changed():
     await http_client.aclose()
 
 
+async def test_update_use_case_fields_uses_given_type_for_empty_fields():
+    content = {"name": "Caso original", "fields": {"field": []}}
+    puts: list[dict] = []
+    http_client = _make_use_case_fields_client(content, puts)
+    auron = AuronClient(client=http_client)
+
+    await auron.update_use_case_fields(
+        "UC-1", {"3278": "20/11/2026"}, data_types={"3278": "DATE_TYPE"}
+    )
+
+    assert puts[0]["fields"]["field"] == [
+        {"id": "3278", "dataType": "DATE_TYPE", "hasChanged": True,
+         "value": "20/11/2026"},
+    ]
+
+    await http_client.aclose()
+
+
 async def test_update_use_case_fields_sends_changed_enums_by_name():
     content = {
         "name": "Caso original",

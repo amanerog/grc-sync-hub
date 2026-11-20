@@ -60,8 +60,9 @@ class Promotion(BaseModel):
 @router.post("/agents/{worker_id}/promotion")
 async def promote_agent(worker_id: str, promotion: Promotion) -> dict:
     """Pase del agente de una version de Maisa a PRE o PRO: escribe
-    `account_id` en el Account ID PRE/PRO de su caso de uso. Es opcional:
-    sin el, no se actualiza nada en OpenPages.
+    `account_id` en el Account ID PRE/PRO de su caso de uso (opcional: sin
+    el, no se toca) y, en el pase a PRO, la fecha de hoy en el Estimated PRO
+    roll-out Date.
 
     404 si la version no existe en Maisa; 409 si el agente no esta en un caso
     de uso real (sin Agent, sin caso de uso o en un generico); 502 si falla

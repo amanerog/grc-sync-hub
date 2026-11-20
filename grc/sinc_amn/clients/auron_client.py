@@ -453,6 +453,7 @@ class AuronClient:
         resource_id: str,
         values: dict[str, str | None],
         enums: dict[str, str] | None = None,
+        data_types: dict[str, str] | None = None,
     ) -> dict | None:
         """Actualiza campos personalizados de un caso de uso (`{field id:
         valor}`, y los enum en `enums` como `{field id: nombre del valor}`),
@@ -462,7 +463,8 @@ class AuronClient:
         ademas de los fields, asi que se leen primero del propio caso de uso
         y se reenvian tal cual. Del GET se toman tambien el `dataType` y el
         `name` de cada field; si el field no viene (vacio en OpenPages) se
-        manda como STRING_TYPE. Los valores None se ignoran, y si todos
+        manda con su tipo en `data_types`, o como STRING_TYPE. Los valores
+        None se ignoran, y si todos
         coinciden con lo que ya hay no se hace el PUT.
         """
         content = await self.get_use_case_content(resource_id)
@@ -477,7 +479,8 @@ class AuronClient:
                 continue
             field = {
                 "id": field_id,
-                "dataType": existing.get("dataType", "STRING_TYPE"),
+                "dataType": existing.get("dataType")
+                or (data_types or {}).get(field_id, "STRING_TYPE"),
                 "hasChanged": True,
                 "value": value,
             }

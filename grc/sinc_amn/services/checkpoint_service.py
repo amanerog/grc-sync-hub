@@ -1,3 +1,5 @@
+from datetime import date
+
 from sinc_amn.clients.auron_client import AuronClient
 from sinc_amn.clients.maisa_client import MaisaClient
 from sinc_amn.config import settings
@@ -73,7 +75,9 @@ class CheckpointService:
     ) -> dict | None:
         """Pase del agente de una version de Maisa a PRE o PRO: apunta la
         cuenta del despliegue en el Account ID PRE/PRO de su caso de uso (sin
-        `account_id`, no se toca). None si la version no existe en Maisa.
+        `account_id`, no se toca) y, en el pase a PRO, la fecha de hoy en el
+        "3278" Estimated PRO roll-out Date (solo se escribe aqui, no en
+        Flujo 2). None si la version no existe en Maisa.
 
         PromotionError si el Agent aun no esta en OpenPages, no cuelga de un
         caso de uso o cuelga de un generico (lo comparten agentes distintos).
@@ -86,11 +90,18 @@ class CheckpointService:
         if agent["is_generic_use_case"]:
             raise PromotionError("el agente cuelga de un caso de uso generico")
 
-        updated = None
+        values = {}
+        data_types = {}
         if account_id is not None:
+            values[openpages_id(f"account_id_{environment.lower()}")] = account_id
+        if environment == "PRO":
+            rollout_field = openpages_id("pro_rollout_date")
+            values[rollout_field] = date.today().strftime("%d/%m/%Y")
+            data_types[rollout_field] = "DATE_TYPE"
+        updated = None
+        if values:
             updated = await self._auron.update_use_case_fields(
-                agent["use_case_id"],
-                {openpages_id(f"account_id_{environment.lower()}"): account_id},
+                agent["use_case_id"], values, data_types=data_types
             )
         return {
             "worker_id": version_id,

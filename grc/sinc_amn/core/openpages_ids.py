@@ -31,6 +31,7 @@ OPENPAGES_IDS: dict[str, dict[str, str | None]] = {
         "account_id_dev": "3405",  # Santander Fields:Account ID DEV
         "account_id_pre": "3406",  # Santander Fields:Account ID PRE
         "account_id_pro": "3407",  # Santander Fields:Account ID PRO
+        "pro_rollout_date": "3278",  # Santander Fields:Estimated PRO roll-out Date
         # Asociacion Agent -> caso de uso (PARENT)
         "agent_use_case_association": "966",
     },
@@ -51,6 +52,7 @@ OPENPAGES_IDS: dict[str, dict[str, str | None]] = {
         "account_id_dev": "3343",
         "account_id_pre": "3344",
         "account_id_pro": "3226",
+        "pro_rollout_date": None,
         "agent_use_case_association": None,
     },
 }

@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import AsyncMock
 
 import pytest
@@ -108,25 +109,50 @@ _REGULAR_USE_CASE = {
 }
 
 
-@pytest.mark.parametrize(
-    ("environment", "field_id"), [("PRE", "3406"), ("PRO", "3407")]
-)
-async def test_promote_writes_the_account_of_the_environment(environment, field_id):
+async def test_promote_to_pre_writes_the_pre_account():
     service, auron = _service(
         agent={"id": "47378", "primaryParentId": "11281"}, use_case=_REGULAR_USE_CASE
     )
     auron.update_use_case_fields.return_value = {"id": "11281"}
 
-    result = await service.promote("v-1", environment, "123456789012")
+    result = await service.promote("v-1", "PRE", "123456789012")
 
     assert result == {
         "worker_id": "v-1",
         "use_case_id": "11281",
-        "environment": environment,
+        "environment": "PRE",
         "updated": True,
     }
     auron.update_use_case_fields.assert_awaited_once_with(
-        "11281", {field_id: "123456789012"}
+        "11281", {"3406": "123456789012"}, data_types={}
+    )
+
+
+async def test_promote_to_pro_writes_the_pro_account_and_rollout_date():
+    service, auron = _service(
+        agent={"id": "47378", "primaryParentId": "11281"}, use_case=_REGULAR_USE_CASE
+    )
+
+    await service.promote("v-1", "PRO", "123456789012")
+
+    auron.update_use_case_fields.assert_awaited_once_with(
+        "11281",
+        {"3407": "123456789012", "3278": date.today().strftime("%d/%m/%Y")},
+        data_types={"3278": "DATE_TYPE"},
+    )
+
+
+async def test_promote_to_pro_without_account_still_writes_rollout_date():
+    service, auron = _service(
+        agent={"id": "47378", "primaryParentId": "11281"}, use_case=_REGULAR_USE_CASE
+    )
+
+    await service.promote("v-1", "PRO", None)
+
+    auron.update_use_case_fields.assert_awaited_once_with(
+        "11281",
+        {"3278": date.today().strftime("%d/%m/%Y")},
+        data_types={"3278": "DATE_TYPE"},
     )
 
 
@@ -141,7 +167,7 @@ async def test_promote_reports_no_change_when_account_is_already_set():
     assert result["updated"] is False
 
 
-async def test_promote_without_account_does_not_touch_openpages():
+async def test_promote_to_pre_without_account_does_not_touch_openpages():
     service, auron = _service(
         agent={"id": "47378", "primaryParentId": "11281"}, use_case=_REGULAR_USE_CASE
     )
