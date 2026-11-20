@@ -54,13 +54,14 @@ async def get_use_case_checkpoint(use_case_id: str) -> dict:
 
 class Promotion(BaseModel):
     environment: Literal["PRE", "PRO"]
-    account_id: str = Field(min_length=1, max_length=64)
+    account_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 @router.post("/agents/{worker_id}/promotion")
 async def promote_agent(worker_id: str, promotion: Promotion) -> dict:
     """Pase del agente de una version de Maisa a PRE o PRO: escribe
-    `account_id` en el Account ID PRE/PRO de su caso de uso.
+    `account_id` en el Account ID PRE/PRO de su caso de uso. Es opcional:
+    sin el, no se actualiza nada en OpenPages.
 
     404 si la version no existe en Maisa; 409 si el agente no esta en un caso
     de uso real (sin Agent, sin caso de uso o en un generico); 502 si falla

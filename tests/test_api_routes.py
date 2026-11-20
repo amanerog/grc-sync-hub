@@ -140,6 +140,7 @@ class _FakeCheckpointService:
     async def promote(self, worker_id, environment, account_id):
         if self.error:
             raise self.error
+        self.promote_args = (worker_id, environment, account_id)
         return self.promotion
 
 
@@ -208,6 +209,19 @@ def test_promotion_returns_service_result(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == promotion
+
+
+def test_promotion_account_id_is_optional(monkeypatch):
+    fake = _FakeCheckpointService()
+    fake.promotion = {"use_case_id": "11281", "updated": False}
+    monkeypatch.setattr(checkpoints, "_service", lambda: fake)
+
+    response = TestClient(app).post(
+        "/checkpoints/agents/v-1/promotion", json={"environment": "PRO"}
+    )
+
+    assert response.status_code == 200
+    assert fake.promote_args == ("v-1", "PRO", None)
 
 
 def test_promotion_404_for_unknown_version(monkeypatch):

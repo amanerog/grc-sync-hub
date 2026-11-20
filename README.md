@@ -148,8 +148,9 @@ lectura salvo el de pase de entorno, que escribe en OpenPages.
   PRE a PRO). Body `{"environment": "PRE"|"PRO", "account_id": "..."}`:
   escribe `account_id` en el campo Account ID PRE o Account ID PRO del caso
   de uso del que cuelga el Agent (ids por instancia en
-  `core/openpages_ids.py`). Devuelve `worker_id`, `use_case_id`,
-  `environment` y `updated` (`false` = ya tenía ese valor). 404 si la versión
+  `core/openpages_ids.py`). `account_id` es opcional: sin él no se actualiza
+  nada en OpenPages. Devuelve `worker_id`, `use_case_id`, `environment` y
+  `updated` (`false` = no venía `account_id` o ya tenía ese valor). 404 si la versión
   no existe en Maisa; 409 si el Agent no está en OpenPages, no cuelga de un
   caso de uso o cuelga de un genérico; 422 si `environment` no es PRE ni PRO.
 

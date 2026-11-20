@@ -69,11 +69,11 @@ class CheckpointService:
         return await self._auron.get_use_case_status(use_case_id)
 
     async def promote(
-        self, version_id: str, environment: str, account_id: str
+        self, version_id: str, environment: str, account_id: str | None
     ) -> dict | None:
         """Pase del agente de una version de Maisa a PRE o PRO: apunta la
-        cuenta del despliegue en el Account ID PRE/PRO de su caso de uso. None
-        si la version no existe en Maisa.
+        cuenta del despliegue en el Account ID PRE/PRO de su caso de uso (sin
+        `account_id`, no se toca). None si la version no existe en Maisa.
 
         PromotionError si el Agent aun no esta en OpenPages, no cuelga de un
         caso de uso o cuelga de un generico (lo comparten agentes distintos).
@@ -86,10 +86,12 @@ class CheckpointService:
         if agent["is_generic_use_case"]:
             raise PromotionError("el agente cuelga de un caso de uso generico")
 
-        updated = await self._auron.update_use_case_fields(
-            agent["use_case_id"],
-            {openpages_id(f"account_id_{environment.lower()}"): account_id},
-        )
+        updated = None
+        if account_id is not None:
+            updated = await self._auron.update_use_case_fields(
+                agent["use_case_id"],
+                {openpages_id(f"account_id_{environment.lower()}"): account_id},
+            )
         return {
             "worker_id": version_id,
             "use_case_id": agent["use_case_id"],

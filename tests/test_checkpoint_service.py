@@ -141,6 +141,17 @@ async def test_promote_reports_no_change_when_account_is_already_set():
     assert result["updated"] is False
 
 
+async def test_promote_without_account_does_not_touch_openpages():
+    service, auron = _service(
+        agent={"id": "47378", "primaryParentId": "11281"}, use_case=_REGULAR_USE_CASE
+    )
+
+    result = await service.promote("v-1", "PRE", None)
+
+    assert result["updated"] is False
+    auron.update_use_case_fields.assert_not_called()
+
+
 async def test_promote_returns_none_for_unknown_version():
     service, auron = _service(worker_manager_id=None)
 
